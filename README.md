@@ -6,6 +6,10 @@
   <img src="assets/meme.png" alt="Butter comic" width="1024">
 </p>
 
+<p align="center">
+  <a href="https://github.com/Temikus/butter/actions/workflows/ci.yml"><img src="https://github.com/Temikus/butter/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a> <a href="https://goreportcard.com/report/github.com/temikus/butter"><img src="https://goreportcard.com/badge/github.com/temikus/butter" alt="Go Report Card"></a> <img src="https://img.shields.io/github/go-mod/go-version/Temikus/butter" alt="Go Version"> <img src="https://img.shields.io/github/license/Temikus/butter" alt="License">
+</p>
+
 A blazingly fast AI proxy gateway written in Go. Butter sits between your application and AI providers, offering a unified OpenAI-compatible API with minimal latency overhead.
 
 Inspired by [Bifrost](https://github.com/maximhq/bifrost), but with a focus on simplicity, extensibility via WASM plugins, and raw performance.
@@ -21,17 +25,18 @@ Your App ──▶ Butter ──▶ OpenRouter / OpenAI / Anthropic / ...
 
 ## Features
 
-**Available now (Phase 1):**
+**Available now:**
 - OpenAI-compatible `/v1/chat/completions` endpoint
 - Streaming (SSE) and non-streaming responses
 - OpenRouter provider with full passthrough
 - YAML configuration with environment variable substitution
+- Weighted random key selection with per-key model allowlists
+- Multi-provider failover with configurable retry-on status codes and exponential backoff
 - Health check endpoint (`/healthz`)
 - Graceful shutdown
 
 **Coming soon:**
-- Multi-provider routing (OpenAI, Anthropic, 20+ more)
-- Weighted load balancing and failover with exponential backoff
+- More providers (OpenAI, Anthropic, 20+ more)
 - Plugin system — built-in Go plugins + sandboxed WASM plugins via [Extism](https://extism.org/)
 - Response caching (in-memory LRU, Redis)
 - OpenTelemetry tracing and Prometheus metrics
@@ -79,10 +84,25 @@ providers:
     base_url: https://openrouter.ai/api/v1
     keys:
       - key: "${OPENROUTER_API_KEY}"
+        weight: 5
+      - key: "${OPENROUTER_API_KEY_2}"
         weight: 1
+        models: ["openai/gpt-4o"]  # Only used for this model
 
 routing:
   default_provider: openrouter
+  models:
+    openai/gpt-4o:
+      providers: [openrouter]
+      strategy: priority
+  failover:
+    enabled: true
+    max_retries: 3
+    retry_on: [429, 500, 502, 503]
+    backoff:
+      initial: 100ms
+      multiplier: 2.0
+      max: 5s
 ```
 
 </details>
