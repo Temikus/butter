@@ -2,10 +2,15 @@ package proxy
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/temikus/butter/internal/config"
 	"github.com/temikus/butter/internal/provider"
@@ -324,41 +329,289 @@ func TestSelectKeyEmpty(t *testing.T) {
 	}
 }
 
-func TestSelectKeyReturnsFirst(t *testing.T) {
-	mock := &mockProvider{
-		name: "openrouter",
-		chatFn: func(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
-			return &provider.ChatResponse{
-				RawBody:    []byte(`{"key":"` + req.APIKey + `"}`),
-				StatusCode: 200,
-			}, nil
-		},
-	}
+// --- Phase 2: Weighted Key Selection Tests ---
 
+func TestSelectKeyWeighted(t *testing.T) {
 	reg := provider.NewRegistry()
-	reg.Register(mock)
+	reg.Register(&mockProvider{name: "test-provider"})
 
 	cfg := &config.Config{
 		Providers: map[string]config.ProviderConfig{
-			"openrouter": {Keys: []config.KeyConfig{
-				{Key: "sk-first", Weight: 1},
-				{Key: "sk-second", Weight: 5},
-				{Key: "sk-third", Weight: 1},
+			"test-provider": {Keys: []config.KeyConfig{
+				{Key: "sk-heavy", Weight: 8},
+				{Key: "sk-light", Weight: 2},
 			}},
 		},
-		Routing: config.RoutingConfig{
-			DefaultProvider: "openrouter",
-		},
+		Routing: config.RoutingConfig{DefaultProvider: "test-provider"},
 	}
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	engine := NewEngine(reg, cfg, logger)
 
-	resp, err := engine.Dispatch(context.Background(), []byte(`{"model":"test","messages":[]}`))
+	counts := map[string]int{}
+	const iterations = 10000
+	for i := 0; i < iterations; i++ {
+		key := engine.selectKey("test-provider", "any-model")
+		counts[key]++
+	}
+
+	// With weights 8:2, sk-heavy should get ~80% of selections.
+	heavyRatio := float64(counts["sk-heavy"]) / float64(iterations)
+	if math.Abs(heavyRatio-0.8) > 0.05 {
+		t.Errorf("expected sk-heavy ratio ~0.80, got %.2f (heavy=%d, light=%d)",
+			heavyRatio, counts["sk-heavy"], counts["sk-light"])
+	}
+}
+
+func TestSelectKeyModelFilter(t *testing.T) {
+	reg := provider.NewRegistry()
+	reg.Register(&mockProvider{name: "test-provider"})
+
+	cfg := &config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"test-provider": {Keys: []config.KeyConfig{
+				{Key: "sk-gpt4-only", Weight: 1, Models: []string{"gpt-4o"}},
+				{Key: "sk-general", Weight: 1},
+			}},
+		},
+		Routing: config.RoutingConfig{DefaultProvider: "test-provider"},
+	}
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	engine := NewEngine(reg, cfg, logger)
+
+	// For gpt-4o, both keys are eligible.
+	gpt4Keys := map[string]bool{}
+	for i := 0; i < 100; i++ {
+		gpt4Keys[engine.selectKey("test-provider", "gpt-4o")] = true
+	}
+	if !gpt4Keys["sk-gpt4-only"] || !gpt4Keys["sk-general"] {
+		t.Errorf("expected both keys for gpt-4o, got: %v", gpt4Keys)
+	}
+
+	// For claude-3, only sk-general is eligible (sk-gpt4-only has Models filter).
+	for i := 0; i < 100; i++ {
+		key := engine.selectKey("test-provider", "claude-3")
+		if key != "sk-general" {
+			t.Fatalf("expected sk-general for claude-3, got %s", key)
+		}
+	}
+}
+
+// --- Phase 2: Failover/Retry Tests ---
+
+func newFailoverEngine(failover config.FailoverConfig, providers ...provider.Provider) *Engine {
+	reg := provider.NewRegistry()
+	providerConfigs := make(map[string]config.ProviderConfig)
+	for _, p := range providers {
+		reg.Register(p)
+		providerConfigs[p.Name()] = config.ProviderConfig{
+			Keys: []config.KeyConfig{{Key: "sk-" + p.Name(), Weight: 1}},
+		}
+	}
+
+	cfg := &config.Config{
+		Providers: providerConfigs,
+		Routing: config.RoutingConfig{
+			DefaultProvider: providers[0].Name(),
+			Models: map[string]config.ModelRoute{
+				"test-model": {Providers: func() []string {
+					names := make([]string, len(providers))
+					for i, p := range providers {
+						names[i] = p.Name()
+					}
+					return names
+				}()},
+			},
+			Failover: failover,
+		},
+	}
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	e := NewEngine(reg, cfg, logger)
+	e.sleepFn = func(d time.Duration) {} // no-op sleep in tests
+	return e
+}
+
+func TestFailoverRetryOnStatus(t *testing.T) {
+	var calls atomic.Int32
+	mock := &mockProvider{
+		name: "primary",
+		chatFn: func(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
+			n := calls.Add(1)
+			if n <= 2 {
+				return nil, &provider.ProviderError{StatusCode: 429, Message: "rate limited"}
+			}
+			return &provider.ChatResponse{RawBody: []byte(`{"ok":true}`), StatusCode: 200}, nil
+		},
+	}
+
+	engine := newFailoverEngine(config.FailoverConfig{
+		Enabled:    true,
+		MaxRetries: 3,
+		RetryOn:    []int{429},
+		Backoff:    config.BackoffConfig{Initial: time.Millisecond, Multiplier: 2, Max: time.Second},
+	}, mock)
+
+	resp, err := engine.Dispatch(context.Background(), []byte(`{"model":"test-model","messages":[]}`))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if string(resp.RawBody) != `{"key":"sk-first"}` {
-		t.Errorf("expected first key, got: %s", resp.RawBody)
+	if string(resp.RawBody) != `{"ok":true}` {
+		t.Errorf("unexpected response: %s", resp.RawBody)
+	}
+	if got := calls.Load(); got != 3 {
+		t.Errorf("expected 3 calls, got %d", got)
+	}
+}
+
+func TestFailoverNextProvider(t *testing.T) {
+	primary := &mockProvider{
+		name: "primary",
+		chatFn: func(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
+			return nil, &provider.ProviderError{StatusCode: 500, Message: "internal error"}
+		},
+	}
+	secondary := &mockProvider{
+		name: "secondary",
+		response: &provider.ChatResponse{RawBody: []byte(`{"from":"secondary"}`), StatusCode: 200},
+	}
+
+	engine := newFailoverEngine(config.FailoverConfig{
+		Enabled:    true,
+		MaxRetries: 2,
+		RetryOn:    []int{429}, // 500 is NOT retryable — should fall through to next provider
+		Backoff:    config.BackoffConfig{Initial: time.Millisecond, Multiplier: 2, Max: time.Second},
+	}, primary, secondary)
+
+	resp, err := engine.Dispatch(context.Background(), []byte(`{"model":"test-model","messages":[]}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if string(resp.RawBody) != `{"from":"secondary"}` {
+		t.Errorf("expected secondary response, got: %s", resp.RawBody)
+	}
+}
+
+func TestFailoverDisabled(t *testing.T) {
+	var calls atomic.Int32
+	mock := &mockProvider{
+		name: "primary",
+		chatFn: func(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
+			calls.Add(1)
+			return nil, &provider.ProviderError{StatusCode: 429, Message: "rate limited"}
+		},
+	}
+
+	engine := newFailoverEngine(config.FailoverConfig{
+		Enabled: false,
+	}, mock)
+
+	_, err := engine.Dispatch(context.Background(), []byte(`{"model":"test-model","messages":[]}`))
+	if err == nil {
+		t.Fatal("expected error when failover disabled")
+	}
+	if got := calls.Load(); got != 1 {
+		t.Errorf("expected 1 call (no retry), got %d", got)
+	}
+}
+
+func TestFailoverExhausted(t *testing.T) {
+	primary := &mockProvider{
+		name: "primary",
+		chatFn: func(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
+			return nil, &provider.ProviderError{StatusCode: 429, Message: "rate limited"}
+		},
+	}
+	secondary := &mockProvider{
+		name: "secondary",
+		chatFn: func(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
+			return nil, &provider.ProviderError{StatusCode: 429, Message: "also rate limited"}
+		},
+	}
+
+	engine := newFailoverEngine(config.FailoverConfig{
+		Enabled:    true,
+		MaxRetries: 1,
+		RetryOn:    []int{429},
+		Backoff:    config.BackoffConfig{Initial: time.Millisecond, Multiplier: 2, Max: time.Second},
+	}, primary, secondary)
+
+	_, err := engine.Dispatch(context.Background(), []byte(`{"model":"test-model","messages":[]}`))
+	if err == nil {
+		t.Fatal("expected error when all providers exhausted")
+	}
+
+	var pe *provider.ProviderError
+	if !errors.As(err, &pe) {
+		t.Fatalf("expected ProviderError, got %T: %v", err, err)
+	}
+	if pe.Message != "also rate limited" {
+		t.Errorf("expected last error from secondary, got: %s", pe.Message)
+	}
+}
+
+func TestFailoverStreamRetry(t *testing.T) {
+	var calls atomic.Int32
+	mock := &mockProvider{
+		name: "primary",
+		streamFn: func(ctx context.Context, req *provider.ChatRequest) (provider.Stream, error) {
+			n := calls.Add(1)
+			if n <= 1 {
+				return nil, &provider.ProviderError{StatusCode: 429, Message: "rate limited"}
+			}
+			return &mockStream{chunks: [][]byte{[]byte(`data: {"ok":true}`)}}, nil
+		},
+	}
+
+	engine := newFailoverEngine(config.FailoverConfig{
+		Enabled:    true,
+		MaxRetries: 2,
+		RetryOn:    []int{429},
+		Backoff:    config.BackoffConfig{Initial: time.Millisecond, Multiplier: 2, Max: time.Second},
+	}, mock)
+
+	stream, err := engine.DispatchStream(context.Background(), []byte(`{"model":"test-model","messages":[],"stream":true}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer stream.Close()
+
+	chunk, err := stream.Next()
+	if err != nil {
+		t.Fatalf("unexpected error reading stream: %v", err)
+	}
+	if string(chunk) != `data: {"ok":true}` {
+		t.Errorf("unexpected chunk: %s", chunk)
+	}
+}
+
+func TestFailoverNonProviderError(t *testing.T) {
+	// Non-ProviderError errors (e.g. network errors) should not be retried —
+	// they break out of the retry loop and try the next provider.
+	primary := &mockProvider{
+		name: "primary",
+		chatFn: func(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
+			return nil, fmt.Errorf("connection refused")
+		},
+	}
+	secondary := &mockProvider{
+		name: "secondary",
+		response: &provider.ChatResponse{RawBody: []byte(`{"from":"secondary"}`), StatusCode: 200},
+	}
+
+	engine := newFailoverEngine(config.FailoverConfig{
+		Enabled:    true,
+		MaxRetries: 2,
+		RetryOn:    []int{429, 500},
+		Backoff:    config.BackoffConfig{Initial: time.Millisecond, Multiplier: 2, Max: time.Second},
+	}, primary, secondary)
+
+	resp, err := engine.Dispatch(context.Background(), []byte(`{"model":"test-model","messages":[]}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if string(resp.RawBody) != `{"from":"secondary"}` {
+		t.Errorf("expected secondary response, got: %s", resp.RawBody)
 	}
 }

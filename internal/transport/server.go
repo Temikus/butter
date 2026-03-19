@@ -3,6 +3,7 @@ package transport
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/temikus/butter/internal/config"
+	"github.com/temikus/butter/internal/provider"
 	"github.com/temikus/butter/internal/proxy"
 )
 
@@ -88,7 +90,12 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	resp, err := s.engine.Dispatch(r.Context(), body)
 	if err != nil {
 		s.logger.Error("dispatch failed", "error", err)
-		s.writeError(w, http.StatusBadGateway, err.Error())
+		status := http.StatusBadGateway
+		var pe *provider.ProviderError
+		if errors.As(err, &pe) {
+			status = pe.StatusCode
+		}
+		s.writeError(w, status, err.Error())
 		return
 	}
 
@@ -113,7 +120,12 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request, body []byt
 	stream, err := s.engine.DispatchStream(r.Context(), body)
 	if err != nil {
 		s.logger.Error("stream dispatch failed", "error", err)
-		s.writeError(w, http.StatusBadGateway, err.Error())
+		status := http.StatusBadGateway
+		var pe *provider.ProviderError
+		if errors.As(err, &pe) {
+			status = pe.StatusCode
+		}
+		s.writeError(w, status, err.Error())
 		return
 	}
 	defer stream.Close()

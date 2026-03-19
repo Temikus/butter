@@ -240,8 +240,9 @@ func TestStreamDispatchError(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusBadGateway {
-		t.Errorf("expected 502, got %d", resp.StatusCode)
+	// The upstream returned 500, which is forwarded as the status code via ProviderError.
+	if resp.StatusCode != 500 {
+		t.Errorf("expected 500, got %d", resp.StatusCode)
 	}
 
 	var result map[string]any
@@ -334,9 +335,17 @@ func TestProviderNon200Relayed(t *testing.T) {
 		t.Errorf("expected 429, got %d", resp.StatusCode)
 	}
 
-	body, _ := io.ReadAll(resp.Body)
-	if string(body) != `{"error":"rate limited"}` {
-		t.Errorf("unexpected body: %s", body)
+	// The error is now wrapped in a proxy_error envelope via ProviderError.
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode error response: %v", err)
+	}
+	errObj, ok := result["error"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected error object, got: %v", result)
+	}
+	if errObj["type"] != "proxy_error" {
+		t.Errorf("expected proxy_error type, got: %v", errObj["type"])
 	}
 }
 

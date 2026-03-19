@@ -69,6 +69,13 @@ func (p *Provider) ChatCompletion(ctx context.Context, req *provider.ChatRequest
 		return nil, fmt.Errorf("reading response: %w", err)
 	}
 
+	if resp.StatusCode >= 400 {
+		return nil, &provider.ProviderError{
+			StatusCode: resp.StatusCode,
+			Message:    string(body),
+		}
+	}
+
 	return &provider.ChatResponse{
 		RawBody:    body,
 		StatusCode: resp.StatusCode,
@@ -90,11 +97,10 @@ func (p *Provider) ChatCompletionStream(ctx context.Context, req *provider.ChatR
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		return nil, &providerError{Response: &provider.ChatResponse{
-			RawBody:    body,
+		return nil, &provider.ProviderError{
 			StatusCode: resp.StatusCode,
-			Headers:    resp.Header,
-		}}
+			Message:    string(body),
+		}
 	}
 
 	return &sseStream{
@@ -178,11 +184,3 @@ func (s *sseStream) Close() error {
 	return s.body.Close()
 }
 
-// providerError wraps a non-OK streaming response as an error.
-type providerError struct {
-	Response *provider.ChatResponse
-}
-
-func (e *providerError) Error() string {
-	return fmt.Sprintf("provider error: status %d", e.Response.StatusCode)
-}

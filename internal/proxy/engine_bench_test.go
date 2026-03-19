@@ -95,3 +95,28 @@ func BenchmarkParseAndRoute(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkSelectKeyWeighted(b *testing.B) {
+	reg := provider.NewRegistry()
+	reg.Register(&mockProvider{name: "bench-provider"})
+
+	cfg := &config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"bench-provider": {Keys: []config.KeyConfig{
+				{Key: "sk-1", Weight: 5},
+				{Key: "sk-2", Weight: 3},
+				{Key: "sk-3", Weight: 2},
+			}},
+		},
+		Routing: config.RoutingConfig{DefaultProvider: "bench-provider"},
+	}
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	engine := NewEngine(reg, cfg, logger)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		engine.selectKey("bench-provider", "any-model")
+	}
+}

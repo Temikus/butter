@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 )
@@ -60,6 +61,17 @@ type ChatRequest struct {
 type Message struct {
 	Role    string `json:"role"`
 	Content any    `json:"content"` // string or []ContentPart
+}
+
+// ProviderError wraps an upstream HTTP error so the engine can inspect
+// the status code for retry/failover decisions.
+type ProviderError struct {
+	StatusCode int
+	Message    string
+}
+
+func (e *ProviderError) Error() string {
+	return fmt.Sprintf("provider error (status %d): %s", e.StatusCode, e.Message)
 }
 
 // ChatResponse is the unified non-streaming response.

@@ -148,12 +148,12 @@ func TestChatCompletionStreamError(t *testing.T) {
 		t.Fatal("expected error for 429 response")
 	}
 
-	pe, ok := err.(*providerError)
+	pe, ok := err.(*provider.ProviderError)
 	if !ok {
-		t.Fatalf("expected *providerError, got %T", err)
+		t.Fatalf("expected *provider.ProviderError, got %T", err)
 	}
-	if pe.Response.StatusCode != 429 {
-		t.Errorf("expected status 429, got %d", pe.Response.StatusCode)
+	if pe.StatusCode != 429 {
+		t.Errorf("expected status 429, got %d", pe.StatusCode)
 	}
 }
 
@@ -205,19 +205,23 @@ func TestChatCompletionNon200(t *testing.T) {
 	defer server.Close()
 
 	p := New(server.URL, nil)
-	resp, err := p.ChatCompletion(context.Background(), &provider.ChatRequest{
+	_, err := p.ChatCompletion(context.Background(), &provider.ChatRequest{
 		Model:   "test",
 		RawBody: []byte(`{"model":"test"}`),
 		APIKey:  "test-key",
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err == nil {
+		t.Fatal("expected error for 500 response")
 	}
-	if resp.StatusCode != 500 {
-		t.Errorf("expected 500, got %d", resp.StatusCode)
+	pe, ok := err.(*provider.ProviderError)
+	if !ok {
+		t.Fatalf("expected *provider.ProviderError, got %T", err)
 	}
-	if string(resp.RawBody) != `{"error":"internal server error"}` {
-		t.Errorf("unexpected body: %s", resp.RawBody)
+	if pe.StatusCode != 500 {
+		t.Errorf("expected status 500, got %d", pe.StatusCode)
+	}
+	if pe.Message != `{"error":"internal server error"}` {
+		t.Errorf("unexpected message: %s", pe.Message)
 	}
 }
 
