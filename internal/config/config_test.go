@@ -161,3 +161,145 @@ func TestLoadInvalidYAML(t *testing.T) {
 		t.Fatal("expected error for invalid YAML")
 	}
 }
+
+func TestLoadEmptyProviders(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	os.WriteFile(path, []byte(`
+server:
+  address: ":9090"
+routing:
+  default_provider: ""
+`), 0644)
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Providers != nil && len(cfg.Providers) != 0 {
+		t.Errorf("expected empty providers, got %d", len(cfg.Providers))
+	}
+}
+
+func TestMultipleEnvVars(t *testing.T) {
+	t.Setenv("BUTTER_KEY_1", "sk-first")
+	t.Setenv("BUTTER_KEY_2", "sk-second")
+	t.Setenv("BUTTER_URL", "https://custom.api/v1")
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	os.WriteFile(path, []byte(`
+providers:
+  openrouter:
+    base_url: "${BUTTER_URL}"
+    keys:
+      - key: "${BUTTER_KEY_1}"
+      - key: "${BUTTER_KEY_2}"
+routing:
+  default_provider: openrouter
+`), 0644)
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	p := cfg.Providers["openrouter"]
+	if p.BaseURL != "https://custom.api/v1" {
+		t.Errorf("expected custom URL, got %s", p.BaseURL)
+	}
+	if len(p.Keys) != 2 {
+		t.Fatalf("expected 2 keys, got %d", len(p.Keys))
+	}
+	if p.Keys[0].Key != "sk-first" {
+		t.Errorf("expected sk-first, got %s", p.Keys[0].Key)
+	}
+	if p.Keys[1].Key != "sk-second" {
+		t.Errorf("expected sk-second, got %s", p.Keys[1].Key)
+	}
+}
+
+func TestMultipleProvidersAndRoutes(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	os.WriteFile(path, []byte(`
+providers:
+  openrouter:
+    base_url: https://openrouter.ai/api/v1
+    keys:
+      - key: "sk-or"
+  openai:
+    base_url: https://api.openai.com/v1
+    keys:
+      - key: "sk-oai"
+  anthropic:
+    base_url: https://api.anthropic.com/v1
+    keys:
+      - key: "sk-ant"
+routing:
+  default_provider: openrouter
+  models:
+    gpt-4o:
+      providers: [openai]
+      strategy: priority
+    claude-3-opus:
+      providers: [anthropic, openrouter]
+      strategy: priority
+`), 0644)
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(cfg.Providers) != 3 {
+		t.Fatalf("expected 3 providers, got %d", len(cfg.Providers))
+	}
+	if len(cfg.Routing.Models) != 2 {
+		t.Fatalf("expected 2 model routes, got %d", len(cfg.Routing.Models))
+	}
+
+	claudeRoute := cfg.Routing.Models["claude-3-opus"]
+	if len(claudeRoute.Providers) != 2 {
+		t.Errorf("expected 2 providers for claude route, got %d", len(claudeRoute.Providers))
+	}
+	if claudeRoute.Providers[0] != "anthropic" {
+		t.Errorf("expected anthropic first, got %s", claudeRoute.Providers[0])
+	}
+}
+
+func TestKeyWeightDefaults(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	os.WriteFile(path, []byte(`
+providers:
+  openrouter:
+    base_url: https://openrouter.ai/api/v1
+    keys:
+      - key: "sk-1"
+      - key: "sk-2"
+      - key: "sk-3"
+        weight: 5
+routing:
+  default_provider: openrouter
+`), 0644)
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	keys := cfg.Providers["openrouter"].Keys
+	if len(keys) != 3 {
+		t.Fatalf("expected 3 keys, got %d", len(keys))
+	}
+	if keys[0].Weight != 1 {
+		t.Errorf("key 0: expected default weight 1, got %d", keys[0].Weight)
+	}
+	if keys[1].Weight != 1 {
+		t.Errorf("key 1: expected default weight 1, got %d", keys[1].Weight)
+	}
+	if keys[2].Weight != 5 {
+		t.Errorf("key 2: expected weight 5, got %d", keys[2].Weight)
+	}
+}

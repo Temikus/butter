@@ -182,3 +182,174 @@ func TestPassthrough(t *testing.T) {
 		t.Errorf("unexpected body: %s", body)
 	}
 }
+
+func TestChatCompletionNetworkError(t *testing.T) {
+	// Use a URL that will refuse connections.
+	p := New("http://127.0.0.1:1", nil)
+	_, err := p.ChatCompletion(context.Background(), &provider.ChatRequest{
+		Model:   "test",
+		RawBody: []byte(`{"model":"test"}`),
+		APIKey:  "test-key",
+	})
+	if err == nil {
+		t.Fatal("expected error for unreachable URL")
+	}
+}
+
+func TestChatCompletionNon200(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(500)
+		fmt.Fprint(w, `{"error":"internal server error"}`)
+	}))
+	defer server.Close()
+
+	p := New(server.URL, nil)
+	resp, err := p.ChatCompletion(context.Background(), &provider.ChatRequest{
+		Model:   "test",
+		RawBody: []byte(`{"model":"test"}`),
+		APIKey:  "test-key",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.StatusCode != 500 {
+		t.Errorf("expected 500, got %d", resp.StatusCode)
+	}
+	if string(resp.RawBody) != `{"error":"internal server error"}` {
+		t.Errorf("unexpected body: %s", resp.RawBody)
+	}
+}
+
+func TestStreamMalformedSSE(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		flusher := w.(http.Flusher)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(200)
+
+		// Comment line (starts with colon)
+		fmt.Fprint(w, ": this is a comment\n\n")
+		flusher.Flush()
+		// Event line
+		fmt.Fprint(w, "event: message\n\n")
+		flusher.Flush()
+		// Normal data
+		fmt.Fprint(w, "data: {\"chunk\":1}\n\n")
+		flusher.Flush()
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		flusher.Flush()
+	}))
+	defer server.Close()
+
+	p := New(server.URL, nil)
+	stream, err := p.ChatCompletionStream(context.Background(), &provider.ChatRequest{
+		Model:   "test",
+		Stream:  true,
+		RawBody: []byte(`{"model":"test","stream":true}`),
+		APIKey:  "test-key",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer stream.Close()
+
+	// Should get the comment line (contains ":"), then event line, then data chunk.
+	chunk1, err := stream.Next()
+	if err != nil {
+		t.Fatalf("unexpected error reading chunk 1: %v", err)
+	}
+	if string(chunk1) != ": this is a comment" {
+		t.Errorf("unexpected chunk 1: %q", chunk1)
+	}
+
+	chunk2, err := stream.Next()
+	if err != nil {
+		t.Fatalf("unexpected error reading chunk 2: %v", err)
+	}
+	if string(chunk2) != "event: message" {
+		t.Errorf("unexpected chunk 2: %q", chunk2)
+	}
+
+	chunk3, err := stream.Next()
+	if err != nil {
+		t.Fatalf("unexpected error reading chunk 3: %v", err)
+	}
+	if string(chunk3) != `data: {"chunk":1}` {
+		t.Errorf("unexpected chunk 3: %q", chunk3)
+	}
+
+	_, err = stream.Next()
+	if err != io.EOF {
+		t.Errorf("expected io.EOF after [DONE], got: %v", err)
+	}
+}
+
+func TestContextCancellation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Block until context is cancelled.
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	p := New(server.URL, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately.
+
+	_, err := p.ChatCompletion(ctx, &provider.ChatRequest{
+		Model:   "test",
+		RawBody: []byte(`{"model":"test"}`),
+		APIKey:  "test-key",
+	})
+	if err == nil {
+		t.Fatal("expected error for cancelled context")
+	}
+}
+
+func TestBuildRequestNoAPIKey(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if auth := r.Header.Get("Authorization"); auth != "" {
+			t.Errorf("expected no Authorization header, got %s", auth)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"id":"resp-1"}`)
+	}))
+	defer server.Close()
+
+	p := New(server.URL, nil)
+	resp, err := p.ChatCompletion(context.Background(), &provider.ChatRequest{
+		Model:   "test",
+		RawBody: []byte(`{"model":"test"}`),
+		APIKey:  "", // Empty key.
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.StatusCode != 200 {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestBaseURLTrailingSlash(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/chat/completions" {
+			t.Errorf("expected /chat/completions, got %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"id":"resp-1"}`)
+	}))
+	defer server.Close()
+
+	// Pass URL with trailing slash.
+	p := New(server.URL+"/", nil)
+	resp, err := p.ChatCompletion(context.Background(), &provider.ChatRequest{
+		Model:   "test",
+		RawBody: []byte(`{"model":"test"}`),
+		APIKey:  "test-key",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.StatusCode != 200 {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+}

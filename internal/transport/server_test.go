@@ -197,3 +197,183 @@ func TestMissingModel(t *testing.T) {
 		t.Errorf("expected 502, got %d", resp.StatusCode)
 	}
 }
+
+func TestProviderError502(t *testing.T) {
+	mockProv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(500)
+		fmt.Fprint(w, `{"error":"internal"}`)
+	}))
+	defer mockProv.Close()
+
+	ts := setupTestServer(t, mockProv.URL)
+	defer ts.Close()
+
+	reqBody := `{"model": "test", "messages": [{"role": "user", "content": "Hi"}]}`
+	resp, err := http.Post(ts.URL+"/v1/chat/completions", "application/json", strings.NewReader(reqBody))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Non-streaming: provider 500 is relayed as-is (not wrapped in 502).
+	if resp.StatusCode != 500 {
+		t.Errorf("expected 500, got %d", resp.StatusCode)
+	}
+}
+
+func TestStreamDispatchError(t *testing.T) {
+	// Provider that returns 500 for streaming requests.
+	mockProv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(500)
+		fmt.Fprint(w, `{"error":"stream fail"}`)
+	}))
+	defer mockProv.Close()
+
+	ts := setupTestServer(t, mockProv.URL)
+	defer ts.Close()
+
+	reqBody := `{"model": "test", "messages": [{"role": "user", "content": "Hi"}], "stream": true}`
+	resp, err := http.Post(ts.URL+"/v1/chat/completions", "application/json", strings.NewReader(reqBody))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Errorf("expected 502, got %d", resp.StatusCode)
+	}
+
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode error response: %v", err)
+	}
+	errObj, ok := result["error"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected error object, got: %v", result)
+	}
+	if errObj["type"] != "proxy_error" {
+		t.Errorf("expected proxy_error type, got: %v", errObj["type"])
+	}
+}
+
+func TestInvalidJSONBody(t *testing.T) {
+	mockProv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer mockProv.Close()
+
+	ts := setupTestServer(t, mockProv.URL)
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/v1/chat/completions", "application/json", strings.NewReader(`{not valid json`))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Errorf("expected 502, got %d", resp.StatusCode)
+	}
+}
+
+func TestEmptyBody(t *testing.T) {
+	mockProv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer mockProv.Close()
+
+	ts := setupTestServer(t, mockProv.URL)
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/v1/chat/completions", "application/json", strings.NewReader(""))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Errorf("expected 502, got %d", resp.StatusCode)
+	}
+}
+
+func TestWrongHTTPMethod(t *testing.T) {
+	mockProv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer mockProv.Close()
+
+	ts := setupTestServer(t, mockProv.URL)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/v1/chat/completions")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405, got %d", resp.StatusCode)
+	}
+}
+
+func TestProviderNon200Relayed(t *testing.T) {
+	mockProv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Custom-Header", "preserved")
+		w.WriteHeader(429)
+		fmt.Fprint(w, `{"error":"rate limited"}`)
+	}))
+	defer mockProv.Close()
+
+	ts := setupTestServer(t, mockProv.URL)
+	defer ts.Close()
+
+	reqBody := `{"model": "test", "messages": [{"role": "user", "content": "Hi"}]}`
+	resp, err := http.Post(ts.URL+"/v1/chat/completions", "application/json", strings.NewReader(reqBody))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 429 {
+		t.Errorf("expected 429, got %d", resp.StatusCode)
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+	if string(body) != `{"error":"rate limited"}` {
+		t.Errorf("unexpected body: %s", body)
+	}
+}
+
+func TestConcurrentRequests(t *testing.T) {
+	mockProv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"id":"ok"}`)
+	}))
+	defer mockProv.Close()
+
+	ts := setupTestServer(t, mockProv.URL)
+	defer ts.Close()
+
+	const concurrent = 50
+	errs := make(chan error, concurrent)
+
+	for i := 0; i < concurrent; i++ {
+		go func() {
+			reqBody := `{"model": "test", "messages": [{"role": "user", "content": "Hi"}]}`
+			resp, err := http.Post(ts.URL+"/v1/chat/completions", "application/json", strings.NewReader(reqBody))
+			if err != nil {
+				errs <- err
+				return
+			}
+			defer resp.Body.Close()
+			io.ReadAll(resp.Body)
+			if resp.StatusCode != 200 {
+				errs <- fmt.Errorf("expected 200, got %d", resp.StatusCode)
+				return
+			}
+			errs <- nil
+		}()
+	}
+
+	for i := 0; i < concurrent; i++ {
+		if err := <-errs; err != nil {
+			t.Errorf("concurrent request %d failed: %v", i, err)
+		}
+	}
+}

@@ -181,7 +181,8 @@ go run ./cmd/butter/ -config config.yaml
 ### Run tests
 
 ```bash
-go test ./... -v
+go test ./... -v -race -count=1   # Run all tests with race detector
+go test ./... -bench=. -benchmem  # Run benchmarks
 ```
 
 ### Project structure
@@ -197,8 +198,6 @@ butter/
 │       ├── provider.go      Provider interface
 │       ├── registry.go      Provider registry
 │       └── openrouter/      OpenRouter implementation
-├── design/
-│   └── prd.md               Design document
 ├── config.example.yaml
 └── go.mod
 ```

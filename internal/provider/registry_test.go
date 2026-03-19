@@ -2,9 +2,11 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"sort"
+	"sync"
 	"testing"
 )
 
@@ -83,5 +85,49 @@ func TestRegistryOverwrite(t *testing.T) {
 	names := reg.List()
 	if len(names) != 1 {
 		t.Errorf("expected 1 provider after overwrite, got %d", len(names))
+	}
+}
+
+func TestRegistryConcurrentAccess(t *testing.T) {
+	reg := NewRegistry()
+	const goroutines = 50
+
+	// Pre-register a provider so Get has something to find.
+	reg.Register(&stubProvider{name: "base"})
+
+	var wg sync.WaitGroup
+	wg.Add(goroutines * 3)
+
+	// Concurrent Register
+	for i := 0; i < goroutines; i++ {
+		go func(i int) {
+			defer wg.Done()
+			reg.Register(&stubProvider{name: fmt.Sprintf("provider-%d", i)})
+		}(i)
+	}
+
+	// Concurrent Get
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer wg.Done()
+			reg.Get("base")
+		}()
+	}
+
+	// Concurrent List
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer wg.Done()
+			reg.List()
+		}()
+	}
+
+	wg.Wait()
+
+	// Verify all providers were registered.
+	names := reg.List()
+	// base + goroutines providers
+	if len(names) != goroutines+1 {
+		t.Errorf("expected %d providers, got %d", goroutines+1, len(names))
 	}
 }
