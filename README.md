@@ -15,7 +15,7 @@ A blazingly fast AI proxy gateway written in Go. Butter sits between your applic
 Inspired by [Bifrost](https://github.com/maximhq/bifrost), but with a focus on simplicity, extensibility via WASM plugins, and raw performance.
 
 ```
-Your App ──▶ Butter ──▶ OpenRouter / OpenAI / Anthropic / ...
+Your App ──▶ Butter ──▶ OpenAI / OpenRouter / ...
                 │
                 ├── Unified OpenAI-compatible API
                 ├── Automatic failover & retries
@@ -28,15 +28,17 @@ Your App ──▶ Butter ──▶ OpenRouter / OpenAI / Anthropic / ...
 **Available now:**
 - OpenAI-compatible `/v1/chat/completions` endpoint
 - Streaming (SSE) and non-streaming responses
-- OpenRouter provider with full passthrough
+- OpenAI and OpenRouter providers (any OpenAI-compatible API via shared base)
+- Multi-provider routing with model-specific provider lists and priority/round-robin strategies
 - YAML configuration with environment variable substitution
 - Weighted random key selection with per-key model allowlists
 - Multi-provider failover with configurable retry-on status codes and exponential backoff
+- Raw HTTP passthrough for unsupported endpoints
 - Health check endpoint (`/healthz`)
 - Graceful shutdown
 
 **Coming soon:**
-- More providers (OpenAI, Anthropic, 20+ more)
+- More providers (Anthropic, 20+ more)
 - Plugin system — built-in Go plugins + sandboxed WASM plugins via [Extism](https://extism.org/)
 - Response caching (in-memory LRU, Redis)
 - OpenTelemetry tracing and Prometheus metrics
@@ -45,8 +47,8 @@ Your App ──▶ Butter ──▶ OpenRouter / OpenAI / Anthropic / ...
 
 ### Prerequisites
 
-- Go 1.22+ (uses enhanced `ServeMux` pattern routing)
-- An [OpenRouter](https://openrouter.ai/) API key (or any OpenAI-compatible provider)
+- Go 1.25+ (uses enhanced `ServeMux` pattern routing)
+- An API key for a supported provider ([OpenAI](https://platform.openai.com/), [OpenRouter](https://openrouter.ai/), or any OpenAI-compatible API)
 
 ### 1. Clone and build
 
@@ -65,10 +67,11 @@ cp config.example.yaml config.yaml
 Edit `config.yaml` or set environment variables:
 
 ```bash
-export OPENROUTER_API_KEY="sk-or-v1-your-key-here"
+export OPENAI_API_KEY="sk-..."
+export OPENROUTER_API_KEY="sk-or-v1-..."
 ```
 
-The config file supports `${ENV_VAR}` substitution, so the default `config.example.yaml` works out of the box once the environment variable is set.
+The config file supports `${ENV_VAR}` substitution, so the default `config.example.yaml` works out of the box once the environment variables are set.
 
 <details>
 <summary>Example config.yaml</summary>
@@ -80,25 +83,31 @@ server:
   write_timeout: 120s
 
 providers:
+  openai:
+    base_url: https://api.openai.com/v1
+    keys:
+      - key: "${OPENAI_API_KEY}"
+        weight: 1
+
   openrouter:
     base_url: https://openrouter.ai/api/v1
     keys:
       - key: "${OPENROUTER_API_KEY}"
-        weight: 5
-      - key: "${OPENROUTER_API_KEY_2}"
         weight: 1
-        models: ["openai/gpt-4o"]  # Only used for this model
 
 routing:
   default_provider: openrouter
   models:
-    openai/gpt-4o:
-      providers: [openrouter]
+    "gpt-4o":
+      providers: [openai, openrouter]
+      strategy: priority
+    "gpt-4o-mini":
+      providers: [openai, openrouter]
       strategy: priority
   failover:
     enabled: true
     max_retries: 3
-    retry_on: [429, 500, 502, 503]
+    retry_on: [429, 500, 502, 503, 504]
     backoff:
       initial: 100ms
       multiplier: 2.0
@@ -192,34 +201,43 @@ console.log(completion.choices[0].message.content);
 
 ## Development
 
-### Run from source
+A [`justfile`](https://github.com/casey/just) is provided for common tasks:
+
+```bash
+just build              # Build binary
+just serve              # Run with config (auto-loads API keys from ~/.openai/api-key, ~/.openrouter/api-key)
+just test               # Run all tests with race detector
+just lint               # Run golangci-lint
+just check              # Run vet + lint + test
+just bench              # Run benchmarks with allocation reporting
+```
+
+Or use Go directly:
 
 ```bash
 go run ./cmd/butter/ -config config.yaml
-```
-
-### Run tests
-
-```bash
-go test ./... -v -race -count=1   # Run all tests with race detector
-go test ./... -bench=. -benchmem  # Run benchmarks
+go test ./... -v -race -count=1
+go test ./... -bench=. -benchmem
 ```
 
 ### Project structure
 
 ```
 butter/
-├── cmd/butter/              Main binary
+├── cmd/butter/                  Main binary
 ├── internal/
-│   ├── config/              YAML config with env var substitution
-│   ├── transport/           HTTP server and handlers
-│   ├── proxy/               Core dispatch engine
+│   ├── config/                  YAML config with env var substitution
+│   ├── transport/               HTTP server and handlers
+│   ├── proxy/                   Core dispatch engine (routing, failover, key selection)
 │   └── provider/
-│       ├── provider.go      Provider interface
-│       ├── registry.go      Provider registry
-│       └── openrouter/      OpenRouter implementation
+│       ├── provider.go          Provider interface & types
+│       ├── registry.go          Thread-safe provider registry
+│       ├── openaicompat/        Reusable base for OpenAI-compatible APIs
+│       ├── openai/              OpenAI provider
+│       └── openrouter/          OpenRouter provider
 ├── config.example.yaml
-└── go.mod
+├── justfile
+└── go.mod                       (single dependency: gopkg.in/yaml.v3)
 ```
 
 ## Performance Targets
