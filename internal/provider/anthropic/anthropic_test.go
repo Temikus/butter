@@ -64,7 +64,7 @@ func TestTranslateRequest_SystemMessage(t *testing.T) {
 	}
 
 	var req anthropicRequest
-	json.Unmarshal(out, &req)
+	_ = json.Unmarshal(out, &req)
 
 	if req.System != "You are helpful" {
 		t.Errorf("expected system 'You are helpful', got %q", req.System)
@@ -90,7 +90,7 @@ func TestTranslateRequest_MultipleSystemMessages(t *testing.T) {
 	}
 
 	var req anthropicRequest
-	json.Unmarshal(out, &req)
+	_ = json.Unmarshal(out, &req)
 
 	if req.System != "Be concise\nBe helpful" {
 		t.Errorf("expected concatenated system, got %q", req.System)
@@ -113,7 +113,7 @@ func TestTranslateRequest_MaxTokensExplicit(t *testing.T) {
 	}
 
 	var req anthropicRequest
-	json.Unmarshal(out, &req)
+	_ = json.Unmarshal(out, &req)
 
 	if req.MaxTokens != 100 {
 		t.Errorf("expected max_tokens 100, got %d", req.MaxTokens)
@@ -133,7 +133,7 @@ func TestTranslateRequest_StopString(t *testing.T) {
 	}
 
 	var req anthropicRequest
-	json.Unmarshal(out, &req)
+	_ = json.Unmarshal(out, &req)
 
 	if len(req.StopSequences) != 1 || req.StopSequences[0] != "END" {
 		t.Errorf("expected stop_sequences [END], got %v", req.StopSequences)
@@ -153,7 +153,7 @@ func TestTranslateRequest_StopArray(t *testing.T) {
 	}
 
 	var req anthropicRequest
-	json.Unmarshal(out, &req)
+	_ = json.Unmarshal(out, &req)
 
 	if len(req.StopSequences) != 2 {
 		t.Fatalf("expected 2 stop_sequences, got %d", len(req.StopSequences))
@@ -176,7 +176,7 @@ func TestTranslateRequest_Temperature(t *testing.T) {
 	}
 
 	var req anthropicRequest
-	json.Unmarshal(out, &req)
+	_ = json.Unmarshal(out, &req)
 
 	if req.Temperature == nil || *req.Temperature != 0.7 {
 		t.Errorf("expected temperature 0.7, got %v", req.Temperature)
@@ -256,7 +256,7 @@ func TestTranslateResponse_MultipleContentBlocks(t *testing.T) {
 	}
 
 	var resp openaiResponse
-	json.Unmarshal(out, &resp)
+	_ = json.Unmarshal(out, &resp)
 
 	if resp.Choices[0].Message.Content != "Hello world!" {
 		t.Errorf("expected concatenated content, got %q", resp.Choices[0].Message.Content)
@@ -290,7 +290,7 @@ func TestTranslateResponse_StopReasons(t *testing.T) {
 		}
 
 		var resp openaiResponse
-		json.Unmarshal(out, &resp)
+		_ = json.Unmarshal(out, &resp)
 
 		if *resp.Choices[0].FinishReason != tt.want {
 			t.Errorf("stop_reason %s: expected %s, got %s", tt.stopReason, tt.want, *resp.Choices[0].FinishReason)
@@ -319,7 +319,7 @@ func TestTranslateStreamEvent_MessageStart(t *testing.T) {
 	}
 
 	var chunk openaiStreamChunk
-	json.Unmarshal(out, &chunk)
+	_ = json.Unmarshal(out, &chunk)
 	if chunk.Choices[0].Delta.Role != "assistant" {
 		t.Errorf("expected role assistant, got %s", chunk.Choices[0].Delta.Role)
 	}
@@ -338,7 +338,7 @@ func TestTranslateStreamEvent_ContentBlockDelta(t *testing.T) {
 	}
 
 	var chunk openaiStreamChunk
-	json.Unmarshal(out, &chunk)
+	_ = json.Unmarshal(out, &chunk)
 	if chunk.Choices[0].Delta.Content != "Hello" {
 		t.Errorf("expected content 'Hello', got %q", chunk.Choices[0].Delta.Content)
 	}
@@ -360,7 +360,7 @@ func TestTranslateStreamEvent_MessageDelta(t *testing.T) {
 	}
 
 	var chunk openaiStreamChunk
-	json.Unmarshal(out, &chunk)
+	_ = json.Unmarshal(out, &chunk)
 	if *chunk.Choices[0].FinishReason != "stop" {
 		t.Errorf("expected finish_reason stop, got %v", chunk.Choices[0].FinishReason)
 	}
@@ -435,7 +435,7 @@ func TestChatCompletion(t *testing.T) {
 		// Return Anthropic response.
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(200)
-		fmt.Fprint(w, `{
+		_, _ = fmt.Fprint(w, `{
 			"id": "msg_test",
 			"type": "message",
 			"role": "assistant",
@@ -494,32 +494,32 @@ func TestChatCompletionStream(t *testing.T) {
 		w.WriteHeader(200)
 
 		// Simulate Anthropic streaming events.
-		fmt.Fprint(w, "event: message_start\n")
-		fmt.Fprint(w, `data: {"type":"message_start","message":{"id":"msg_stream","model":"claude-sonnet-4-20250514","usage":{"input_tokens":10}}}`+"\n\n")
+		_, _ = fmt.Fprint(w, "event: message_start\n")
+		_, _ = fmt.Fprint(w, `data: {"type":"message_start","message":{"id":"msg_stream","model":"claude-sonnet-4-20250514","usage":{"input_tokens":10}}}`+"\n\n")
 		flusher.Flush()
 
-		fmt.Fprint(w, "event: content_block_start\n")
-		fmt.Fprint(w, `data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`+"\n\n")
+		_, _ = fmt.Fprint(w, "event: content_block_start\n")
+		_, _ = fmt.Fprint(w, `data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`+"\n\n")
 		flusher.Flush()
 
-		fmt.Fprint(w, "event: content_block_delta\n")
-		fmt.Fprint(w, `data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}`+"\n\n")
+		_, _ = fmt.Fprint(w, "event: content_block_delta\n")
+		_, _ = fmt.Fprint(w, `data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}`+"\n\n")
 		flusher.Flush()
 
-		fmt.Fprint(w, "event: content_block_delta\n")
-		fmt.Fprint(w, `data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" world"}}`+"\n\n")
+		_, _ = fmt.Fprint(w, "event: content_block_delta\n")
+		_, _ = fmt.Fprint(w, `data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" world"}}`+"\n\n")
 		flusher.Flush()
 
-		fmt.Fprint(w, "event: content_block_stop\n")
-		fmt.Fprint(w, `data: {"type":"content_block_stop","index":0}`+"\n\n")
+		_, _ = fmt.Fprint(w, "event: content_block_stop\n")
+		_, _ = fmt.Fprint(w, `data: {"type":"content_block_stop","index":0}`+"\n\n")
 		flusher.Flush()
 
-		fmt.Fprint(w, "event: message_delta\n")
-		fmt.Fprint(w, `data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}`+"\n\n")
+		_, _ = fmt.Fprint(w, "event: message_delta\n")
+		_, _ = fmt.Fprint(w, `data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}`+"\n\n")
 		flusher.Flush()
 
-		fmt.Fprint(w, "event: message_stop\n")
-		fmt.Fprint(w, `data: {"type":"message_stop"}`+"\n\n")
+		_, _ = fmt.Fprint(w, "event: message_stop\n")
+		_, _ = fmt.Fprint(w, `data: {"type":"message_stop"}`+"\n\n")
 		flusher.Flush()
 	}))
 	defer server.Close()
@@ -578,7 +578,7 @@ func TestChatCompletionStream(t *testing.T) {
 func TestChatCompletionStreamError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(429)
-		fmt.Fprint(w, `{"type":"error","error":{"type":"rate_limit_error","message":"Too many requests"}}`)
+		_, _ = fmt.Fprint(w, `{"type":"error","error":{"type":"rate_limit_error","message":"Too many requests"}}`)
 	}))
 	defer server.Close()
 
@@ -613,7 +613,7 @@ func TestPassthrough(t *testing.T) {
 		if r.Header.Get("X-Custom") != "value" {
 			t.Errorf("expected X-Custom header")
 		}
-		fmt.Fprint(w, `{"id":"msg_pass"}`)
+		_, _ = fmt.Fprint(w, `{"id":"msg_pass"}`)
 	}))
 	defer server.Close()
 
@@ -674,7 +674,7 @@ func TestSetAuthHeader(t *testing.T) {
 func TestChatCompletionNon200(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
-		fmt.Fprint(w, `{"type":"error","error":{"type":"api_error","message":"Internal error"}}`)
+		_, _ = fmt.Fprint(w, `{"type":"error","error":{"type":"api_error","message":"Internal error"}}`)
 	}))
 	defer server.Close()
 
@@ -706,7 +706,7 @@ func TestBaseURLTrailingSlash(t *testing.T) {
 			t.Errorf("expected /messages, got %s", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{
+		_, _ = fmt.Fprint(w, `{
 			"id":"msg_1","type":"message","role":"assistant",
 			"content":[{"type":"text","text":"ok"}],
 			"model":"claude-sonnet-4-20250514","stop_reason":"end_turn",

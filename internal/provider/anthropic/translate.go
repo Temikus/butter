@@ -76,10 +76,7 @@ func translateRequest(rawBody []byte) ([]byte, error) {
 			}
 			systemParts = append(systemParts, text)
 		} else {
-			ant.Messages = append(ant.Messages, anthropicMessage{
-				Role:    msg.Role,
-				Content: msg.Content,
-			})
+			ant.Messages = append(ant.Messages, anthropicMessage(msg))
 		}
 	}
 	if len(systemParts) > 0 {
