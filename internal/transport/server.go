@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/temikus/butter/internal/config"
+	"github.com/temikus/butter/internal/plugin"
 	"github.com/temikus/butter/internal/provider"
 	"github.com/temikus/butter/internal/proxy"
 )
@@ -20,12 +21,14 @@ type Server struct {
 	httpServer *http.Server
 	engine     *proxy.Engine
 	logger     *slog.Logger
+	chain      *plugin.Chain
 }
 
-func NewServer(cfg *config.ServerConfig, engine *proxy.Engine, logger *slog.Logger) *Server {
+func NewServer(cfg *config.ServerConfig, engine *proxy.Engine, logger *slog.Logger, chain *plugin.Chain) *Server {
 	s := &Server{
 		engine: engine,
 		logger: logger,
+		chain:  chain,
 	}
 
 	mux := http.NewServeMux()
@@ -82,9 +85,22 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = r.Body.Close() }()
 
+	// Run transport pre-hooks.
+	var pctx *plugin.RequestContext
+	if s.chain != nil {
+		pctx = &plugin.RequestContext{
+			Request:   r,
+			Body:      body,
+			Metadata:  make(map[string]any),
+			StartTime: time.Now(),
+		}
+		s.chain.RunPreHTTP(pctx)
+		body = pctx.Body
+	}
+
 	// Check if this is a streaming request by inspecting the raw body.
 	if isStreamRequest(body) {
-		s.handleStream(w, r, body)
+		s.handleStream(w, r, body, pctx)
 		return
 	}
 
@@ -100,6 +116,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Run transport post-hooks.
+	if s.chain != nil && pctx != nil {
+		s.chain.RunPostHTTP(pctx)
+	}
+
 	// Relay provider response headers.
 	for k, vs := range resp.Headers {
 		for _, v := range vs {
@@ -111,7 +132,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(resp.RawBody)
 }
 
-func (s *Server) handleStream(w http.ResponseWriter, r *http.Request, body []byte) {
+func (s *Server) handleStream(w http.ResponseWriter, r *http.Request, body []byte, pctx *plugin.RequestContext) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		s.writeError(w, http.StatusInternalServerError, "streaming not supported")
@@ -150,6 +171,11 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request, body []byt
 			return
 		}
 
+		// Run stream chunk hooks.
+		if s.chain != nil && pctx != nil {
+			chunk = s.chain.RunStreamChunk(pctx, chunk)
+		}
+
 		// Write the SSE chunk and flush immediately.
 		_, _ = fmt.Fprintf(w, "%s\n\n", chunk)
 		flusher.Flush()
@@ -159,6 +185,18 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request, body []byt
 func (s *Server) handleNativePassthrough(w http.ResponseWriter, r *http.Request) {
 	providerName := r.PathValue("provider")
 	upstreamPath := "/" + r.PathValue("path")
+
+	// Run transport pre-hooks.
+	if s.chain != nil {
+		pctx := &plugin.RequestContext{
+			Request:   r,
+			Provider:  providerName,
+			Metadata:  make(map[string]any),
+			StartTime: time.Now(),
+		}
+		s.chain.RunPreHTTP(pctx)
+		defer s.chain.RunPostHTTP(pctx)
+	}
 
 	// Clone headers, stripping hop-by-hop headers.
 	fwdHeaders := r.Header.Clone()

@@ -85,7 +85,7 @@ func newTestEngine(providers ...provider.Provider) *Engine {
 	}
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	return NewEngine(reg, cfg, logger)
+	return NewEngine(reg, cfg, logger, nil)
 }
 
 func TestDispatchDefaultProvider(t *testing.T) {
@@ -271,7 +271,7 @@ func TestDispatchNoProviderConfigured(t *testing.T) {
 	}
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	engine := NewEngine(reg, cfg, logger)
+	engine := NewEngine(reg, cfg, logger, nil)
 
 	_, err := engine.Dispatch(context.Background(), []byte(`{"model":"unknown-model","messages":[]}`))
 	if err == nil {
@@ -317,7 +317,7 @@ func TestSelectKeyEmpty(t *testing.T) {
 	}
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	engine := NewEngine(reg, cfg, logger)
+	engine := NewEngine(reg, cfg, logger, nil)
 
 	resp, err := engine.Dispatch(context.Background(), []byte(`{"model":"test","messages":[]}`))
 	if err != nil {
@@ -346,7 +346,7 @@ func TestSelectKeyWeighted(t *testing.T) {
 	}
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	engine := NewEngine(reg, cfg, logger)
+	engine := NewEngine(reg, cfg, logger, nil)
 
 	counts := map[string]int{}
 	const iterations = 10000
@@ -378,7 +378,7 @@ func TestSelectKeyModelFilter(t *testing.T) {
 	}
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	engine := NewEngine(reg, cfg, logger)
+	engine := NewEngine(reg, cfg, logger, nil)
 
 	// For gpt-4o, both keys are eligible.
 	gpt4Keys := map[string]bool{}
@@ -428,7 +428,7 @@ func newFailoverEngine(failover config.FailoverConfig, providers ...provider.Pro
 	}
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	e := NewEngine(reg, cfg, logger)
+	e := NewEngine(reg, cfg, logger, nil)
 	e.sleepFn = func(d time.Duration) {} // no-op sleep in tests
 	return e
 }

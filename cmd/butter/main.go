@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/temikus/butter/internal/config"
+	"github.com/temikus/butter/internal/plugin"
 	"github.com/temikus/butter/internal/provider"
 	"github.com/temikus/butter/internal/provider/anthropic"
 	"github.com/temikus/butter/internal/provider/openai"
@@ -61,8 +62,12 @@ func main() {
 		}
 	}
 
-	engine := proxy.NewEngine(registry, cfg, logger)
-	server := transport.NewServer(&cfg.Server, engine, logger)
+	// Plugin system.
+	pluginMgr := plugin.NewManager(logger)
+	pluginChain := plugin.NewChain(pluginMgr, logger)
+
+	engine := proxy.NewEngine(registry, cfg, logger, pluginChain)
+	server := transport.NewServer(&cfg.Server, engine, logger, pluginChain)
 
 	// Graceful shutdown.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -85,5 +90,6 @@ func main() {
 		logger.Error("shutdown error", "error", err)
 	}
 
+	pluginMgr.CloseAll()
 	fmt.Println("butter stopped")
 }

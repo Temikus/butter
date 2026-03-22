@@ -38,7 +38,7 @@ func newBenchEngine() *Engine {
 	}
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	return NewEngine(reg, cfg, logger)
+	return NewEngine(reg, cfg, logger, nil)
 }
 
 var benchBody = []byte(`{"model":"test-model","messages":[{"role":"user","content":"hello"}]}`)
@@ -112,7 +112,7 @@ func BenchmarkSelectKeyWeighted(b *testing.B) {
 	}
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	engine := NewEngine(reg, cfg, logger)
+	engine := NewEngine(reg, cfg, logger, nil)
 
 	b.ResetTimer()
 	b.ReportAllocs()

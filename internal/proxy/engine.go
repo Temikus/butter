@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/temikus/butter/internal/config"
+	"github.com/temikus/butter/internal/plugin"
 	"github.com/temikus/butter/internal/provider"
 )
 
@@ -22,11 +23,12 @@ type Engine struct {
 	config   *config.Config
 	keys     map[string][]config.KeyConfig // provider name -> keys
 	logger   *slog.Logger
+	chain    *plugin.Chain // nil means no plugins
 	// sleepFn is used for backoff delays; overridable for testing.
 	sleepFn func(time.Duration)
 }
 
-func NewEngine(reg *provider.Registry, cfg *config.Config, logger *slog.Logger) *Engine {
+func NewEngine(reg *provider.Registry, cfg *config.Config, logger *slog.Logger, chain *plugin.Chain) *Engine {
 	keys := make(map[string][]config.KeyConfig)
 	for name, p := range cfg.Providers {
 		keys[name] = p.Keys
@@ -36,6 +38,7 @@ func NewEngine(reg *provider.Registry, cfg *config.Config, logger *slog.Logger) 
 		config:   cfg,
 		keys:     keys,
 		logger:   logger,
+		chain:    chain,
 		sleepFn:  time.Sleep,
 	}
 }
@@ -45,6 +48,20 @@ func (e *Engine) Dispatch(ctx context.Context, rawBody []byte) (*provider.ChatRe
 	req, providerNames, err := e.parseAndRoute(rawBody)
 	if err != nil {
 		return nil, err
+	}
+
+	// Run LLM pre-hooks.
+	var pctx *plugin.RequestContext
+	if e.chain != nil {
+		pctx = &plugin.RequestContext{
+			Model:     req.Model,
+			Body:      rawBody,
+			Metadata:  make(map[string]any),
+			StartTime: time.Now(),
+		}
+		pctx = e.chain.RunPreLLM(pctx)
+		rawBody = pctx.Body
+		req.Model = pctx.Model
 	}
 
 	failover := e.config.Routing.Failover
@@ -79,6 +96,19 @@ func (e *Engine) Dispatch(ctx context.Context, rawBody []byte) (*provider.ChatRe
 
 			resp, err := p.ChatCompletion(ctx, req)
 			if err == nil {
+				// Run LLM post-hooks.
+				if e.chain != nil && pctx != nil {
+					pctx.Provider = providerName
+					pluginResp := &plugin.Response{
+						StatusCode: resp.StatusCode,
+						Headers:    resp.Headers,
+						Body:       resp.RawBody,
+					}
+					pluginResp = e.chain.RunPostLLM(pctx, pluginResp)
+					resp.RawBody = pluginResp.Body
+					resp.StatusCode = pluginResp.StatusCode
+					resp.Headers = pluginResp.Headers
+				}
 				return resp, nil
 			}
 
@@ -104,6 +134,19 @@ func (e *Engine) DispatchStream(ctx context.Context, rawBody []byte) (provider.S
 	req, providerNames, err := e.parseAndRoute(rawBody)
 	if err != nil {
 		return nil, err
+	}
+
+	// Run LLM pre-hooks.
+	if e.chain != nil {
+		pctx := &plugin.RequestContext{
+			Model:     req.Model,
+			Body:      rawBody,
+			Metadata:  make(map[string]any),
+			StartTime: time.Now(),
+		}
+		pctx = e.chain.RunPreLLM(pctx)
+		rawBody = pctx.Body
+		req.Model = pctx.Model
 	}
 
 	failover := e.config.Routing.Failover

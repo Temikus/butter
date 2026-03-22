@@ -42,8 +42,8 @@ func setupTestServer(t *testing.T, mockProviderURL string) *httptest.Server {
 	registry := provider.NewRegistry()
 	registry.Register(openrouter.New(mockProviderURL, nil))
 
-	engine := proxy.NewEngine(registry, cfg, logger)
-	srv := transport.NewServer(&cfg.Server, engine, logger)
+	engine := proxy.NewEngine(registry, cfg, logger, nil)
+	srv := transport.NewServer(&cfg.Server, engine, logger, nil)
 
 	// Use httptest to wrap the handler
 	ts := httptest.NewServer(srv.Handler())
