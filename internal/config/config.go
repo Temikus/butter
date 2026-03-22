@@ -11,9 +11,10 @@ import (
 )
 
 type Config struct {
-	Server    ServerConfig              `yaml:"server"`
-	Providers map[string]ProviderConfig `yaml:"providers"`
-	Routing   RoutingConfig             `yaml:"routing"`
+	Server    ServerConfig                `yaml:"server"`
+	Providers map[string]ProviderConfig   `yaml:"providers"`
+	Routing   RoutingConfig               `yaml:"routing"`
+	Plugins   map[string]map[string]any   `yaml:"plugins,omitempty"`
 }
 
 type ServerConfig struct {

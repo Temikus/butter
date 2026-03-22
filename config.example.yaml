@@ -47,3 +47,9 @@ routing:
       multiplier: 2.0
       max: 5s
     retry_on: [429, 500, 502, 503, 504]
+
+plugins:
+  requestlog:
+    level: info          # debug | info | warn | error
+    log_bodies: false    # log request/response bodies (truncated)
+    body_max_bytes: 1024 # max body bytes to log

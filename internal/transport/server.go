@@ -86,17 +86,19 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	defer func() { _ = r.Body.Close() }()
 
 	// Run transport pre-hooks.
-	var pctx *plugin.RequestContext
+	pctx := &plugin.RequestContext{
+		Request:   r,
+		Body:      body,
+		Metadata:  make(map[string]any),
+		StartTime: time.Now(),
+	}
 	if s.chain != nil {
-		pctx = &plugin.RequestContext{
-			Request:   r,
-			Body:      body,
-			Metadata:  make(map[string]any),
-			StartTime: time.Now(),
-		}
 		s.chain.RunPreHTTP(pctx)
 		body = pctx.Body
 	}
+
+	// Store pctx in request context so the engine can populate Provider/Model.
+	r = r.WithContext(plugin.WithRequestContext(r.Context(), pctx))
 
 	// Check if this is a streaming request by inspecting the raw body.
 	if isStreamRequest(body) {
@@ -113,13 +115,16 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			status = pe.StatusCode
 		}
 		s.writeError(w, status, err.Error())
+		s.emitTrace(pctx, r, status, false, err)
 		return
 	}
 
 	// Run transport post-hooks.
-	if s.chain != nil && pctx != nil {
+	if s.chain != nil {
 		s.chain.RunPostHTTP(pctx)
 	}
+
+	s.emitTrace(pctx, r, resp.StatusCode, false, nil)
 
 	// Relay provider response headers.
 	for k, vs := range resp.Headers {
@@ -148,6 +153,7 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request, body []byt
 			status = pe.StatusCode
 		}
 		s.writeError(w, status, err.Error())
+		s.emitTrace(pctx, r, status, true, err)
 		return
 	}
 	defer func() { _ = stream.Close() }()
@@ -158,6 +164,7 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request, body []byt
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
+	var streamErr error
 	for {
 		chunk, err := stream.Next()
 		if err != nil {
@@ -165,10 +172,11 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request, body []byt
 				// Send the final [DONE] marker.
 				_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
 				flusher.Flush()
-				return
+				break
 			}
 			s.logger.Error("stream read error", "error", err)
-			return
+			streamErr = err
+			break
 		}
 
 		// Run stream chunk hooks.
@@ -180,6 +188,8 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request, body []byt
 		_, _ = fmt.Fprintf(w, "%s\n\n", chunk)
 		flusher.Flush()
 	}
+
+	s.emitTrace(pctx, r, http.StatusOK, true, streamErr)
 }
 
 func (s *Server) handleNativePassthrough(w http.ResponseWriter, r *http.Request) {
@@ -187,15 +197,14 @@ func (s *Server) handleNativePassthrough(w http.ResponseWriter, r *http.Request)
 	upstreamPath := "/" + r.PathValue("path")
 
 	// Run transport pre-hooks.
+	pctx := &plugin.RequestContext{
+		Request:   r,
+		Provider:  providerName,
+		Metadata:  make(map[string]any),
+		StartTime: time.Now(),
+	}
 	if s.chain != nil {
-		pctx := &plugin.RequestContext{
-			Request:   r,
-			Provider:  providerName,
-			Metadata:  make(map[string]any),
-			StartTime: time.Now(),
-		}
 		s.chain.RunPreHTTP(pctx)
-		defer s.chain.RunPostHTTP(pctx)
 	}
 
 	// Clone headers, stripping hop-by-hop headers.
@@ -207,9 +216,16 @@ func (s *Server) handleNativePassthrough(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		s.logger.Error("passthrough dispatch failed", "provider", providerName, "error", err)
 		s.writeError(w, http.StatusBadGateway, err.Error())
+		s.emitTrace(pctx, r, http.StatusBadGateway, false, err)
 		return
 	}
 	defer func() { _ = resp.Body.Close() }()
+
+	if s.chain != nil {
+		s.chain.RunPostHTTP(pctx)
+	}
+
+	s.emitTrace(pctx, r, resp.StatusCode, false, nil)
 
 	// Relay upstream response headers.
 	for k, vs := range resp.Header {
@@ -219,6 +235,26 @@ func (s *Server) handleNativePassthrough(w http.ResponseWriter, r *http.Request)
 	}
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, resp.Body)
+}
+
+// emitTrace sends a RequestTrace to observability plugins via the chain.
+func (s *Server) emitTrace(pctx *plugin.RequestContext, r *http.Request, status int, streaming bool, err error) {
+	if s.chain == nil {
+		return
+	}
+	trace := &plugin.RequestTrace{
+		Provider:   pctx.Provider,
+		Model:      pctx.Model,
+		StatusCode: status,
+		Duration:   time.Since(pctx.StartTime),
+		Error:      err,
+		Metadata: map[string]any{
+			"method":    r.Method,
+			"path":      r.URL.Path,
+			"streaming": streaming,
+		},
+	}
+	s.chain.EmitTrace(trace)
 }
 
 func (s *Server) writeError(w http.ResponseWriter, status int, msg string) {

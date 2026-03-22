@@ -13,6 +13,7 @@ import (
 
 	"github.com/temikus/butter/internal/config"
 	"github.com/temikus/butter/internal/plugin"
+	"github.com/temikus/butter/internal/plugin/builtin/requestlog"
 	"github.com/temikus/butter/internal/version"
 	"github.com/temikus/butter/internal/provider"
 	"github.com/temikus/butter/internal/provider/anthropic"
@@ -71,6 +72,17 @@ func main() {
 
 	// Plugin system.
 	pluginMgr := plugin.NewManager(logger)
+
+	// Register built-in plugins based on config.
+	if _, ok := cfg.Plugins["requestlog"]; ok {
+		pluginMgr.Register(requestlog.New(logger))
+	}
+
+	if err := pluginMgr.InitAll(cfg.Plugins); err != nil {
+		logger.Error("failed to initialize plugins", "error", err)
+		os.Exit(1)
+	}
+
 	pluginChain := plugin.NewChain(pluginMgr, logger)
 
 	engine := proxy.NewEngine(registry, cfg, logger, pluginChain)

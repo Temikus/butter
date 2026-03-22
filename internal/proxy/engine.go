@@ -51,13 +51,20 @@ func (e *Engine) Dispatch(ctx context.Context, rawBody []byte) (*provider.ChatRe
 	}
 
 	// Run LLM pre-hooks.
-	var pctx *plugin.RequestContext
+	// Reuse the RequestContext from transport if available, so provider/model
+	// flow back to the transport layer for trace emission.
+	pctx := plugin.GetRequestContext(ctx)
 	if e.chain != nil {
-		pctx = &plugin.RequestContext{
-			Model:     req.Model,
-			Body:      rawBody,
-			Metadata:  make(map[string]any),
-			StartTime: time.Now(),
+		if pctx == nil {
+			pctx = &plugin.RequestContext{
+				Model:     req.Model,
+				Body:      rawBody,
+				Metadata:  make(map[string]any),
+				StartTime: time.Now(),
+			}
+		} else {
+			pctx.Model = req.Model
+			pctx.Body = rawBody
 		}
 		pctx = e.chain.RunPreLLM(pctx)
 		rawBody = pctx.Body
@@ -96,9 +103,12 @@ func (e *Engine) Dispatch(ctx context.Context, rawBody []byte) (*provider.ChatRe
 
 			resp, err := p.ChatCompletion(ctx, req)
 			if err == nil {
+				// Populate provider on shared context for transport trace.
+				if pctx != nil {
+					pctx.Provider = providerName
+				}
 				// Run LLM post-hooks.
 				if e.chain != nil && pctx != nil {
-					pctx.Provider = providerName
 					pluginResp := &plugin.Response{
 						StatusCode: resp.StatusCode,
 						Headers:    resp.Headers,
@@ -137,12 +147,19 @@ func (e *Engine) DispatchStream(ctx context.Context, rawBody []byte) (provider.S
 	}
 
 	// Run LLM pre-hooks.
+	// Reuse the RequestContext from transport if available.
+	pctx := plugin.GetRequestContext(ctx)
 	if e.chain != nil {
-		pctx := &plugin.RequestContext{
-			Model:     req.Model,
-			Body:      rawBody,
-			Metadata:  make(map[string]any),
-			StartTime: time.Now(),
+		if pctx == nil {
+			pctx = &plugin.RequestContext{
+				Model:     req.Model,
+				Body:      rawBody,
+				Metadata:  make(map[string]any),
+				StartTime: time.Now(),
+			}
+		} else {
+			pctx.Model = req.Model
+			pctx.Body = rawBody
 		}
 		pctx = e.chain.RunPreLLM(pctx)
 		rawBody = pctx.Body
@@ -181,6 +198,10 @@ func (e *Engine) DispatchStream(ctx context.Context, rawBody []byte) (provider.S
 
 			stream, err := p.ChatCompletionStream(ctx, req)
 			if err == nil {
+				// Populate provider on shared context for transport trace.
+				if pctx != nil {
+					pctx.Provider = providerName
+				}
 				return stream, nil
 			}
 
