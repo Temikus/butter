@@ -252,4 +252,4 @@ butter/
 
 ## License
 
-TBD
+Apache 2.0 License. See [LICENSE](LICENSE) for details.
