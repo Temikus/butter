@@ -36,6 +36,8 @@ Your App ──▶ Butter ──▶ OpenAI / Anthropic / OpenRouter / ...
 - Multi-provider failover with configurable retry-on status codes and exponential backoff
 - Plugin system with ordered hook chains (pre/post HTTP, pre/post LLM, stream chunks, observability traces)
 - Built-in request logging plugin (structured slog traces with provider, model, status, duration)
+- Built-in rate limiter plugin (token bucket, global or per-IP, configurable RPM)
+- Plugin short-circuit support (plugins can reject requests before they reach the provider)
 - Raw HTTP passthrough for unsupported endpoints (`/native/{provider}/*`)
 - Health check endpoint (`/healthz`)
 - Graceful shutdown
@@ -43,7 +45,7 @@ Your App ──▶ Butter ──▶ OpenAI / Anthropic / OpenRouter / ...
 **Coming soon:**
 - More providers (20+ to match Bifrost coverage)
 - WASM plugin sandbox via [Extism](https://extism.org/) for external plugins
-- Built-in rate limiter and Prometheus metrics plugins
+- Built-in Prometheus metrics plugin
 - Response caching (in-memory LRU, Redis)
 - OpenTelemetry tracing
 
@@ -127,6 +129,9 @@ routing:
       max: 5s
 
 plugins:
+  ratelimit:
+    requests_per_minute: 60
+    per_ip: false
   requestlog:
     level: info
 ```
@@ -249,7 +254,9 @@ butter/
 │   ├── transport/               HTTP server and handlers
 │   ├── proxy/                   Core dispatch engine (routing, failover, key selection)
 │   ├── plugin/                  Plugin system (interfaces, chain, manager)
-│   │   └── builtin/requestlog/  Request logging plugin
+│   │   └── builtin/
+│   │       ├── ratelimit/       Token bucket rate limiter plugin
+│   │       └── requestlog/      Request logging plugin
 │   └── provider/
 │       ├── provider.go          Provider interface & types
 │       ├── registry.go          Thread-safe provider registry
