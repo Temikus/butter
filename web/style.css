@@ -408,6 +408,7 @@ code {
 .footer-badges {
   display: flex;
   justify-content: center;
+  align-items: center;
   gap: 8px;
   margin-bottom: 16px;
   flex-wrap: wrap;
