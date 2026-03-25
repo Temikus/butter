@@ -1,0 +1,9 @@
+.git
+.github
+.claude
+design/
+web/
+pkg/
+*.md
+.goreleaser.yml
+.golangci.yml

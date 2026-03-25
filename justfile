@@ -53,6 +53,10 @@ serve config="config.example.yaml":
 test:
     go test ./... -v -race -count=1
 
+# Run integration tests (spins up mock HTTP servers, no real API calls)
+test-integration:
+    go test ./tests/integration/... -v -race -count=1 -tags integration
+
 # Run a single test: just test-one ./internal/proxy/ TestDispatch
 test-one pkg name:
     go test {{pkg}} -run {{name}} -v -race -count=1
@@ -65,8 +69,22 @@ lint:
 vet:
     go vet ./...
 
-# Run all checks (vet + lint + tests)
-check: vet lint test
+# Run all checks (vet + lint + unit tests + integration tests)
+check: vet lint test test-integration
+
+# Build Docker image: just docker-build [tag]
+docker-build tag="latest":
+    docker build \
+      --build-arg VERSION=$(git describe --tags --always --dirty) \
+      --build-arg COMMIT=$(git rev-parse --short HEAD) \
+      --build-arg DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+      -t butter:{{tag}} .
+
+# Run Docker container: just docker-run [tag] [config]
+docker-run tag="latest" config="config.yaml":
+    docker run --rm -p 8080:8080 \
+      -v "$(pwd)/{{config}}:/config.yaml:ro" \
+      butter:{{tag}}
 
 # Benchmarks with allocation reporting
 bench:

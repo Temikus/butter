@@ -148,8 +148,14 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	s.emitTrace(pctx, r, resp.StatusCode, false, nil)
 
-	// Relay provider response headers.
+	// Relay provider response headers, skipping headers that must be
+	// recalculated by the HTTP server (Content-Length, Transfer-Encoding)
+	// or that Butter sets explicitly (Content-Type).
 	for k, vs := range resp.Headers {
+		switch k {
+		case "Content-Length", "Transfer-Encoding", "Content-Type":
+			continue
+		}
 		for _, v := range vs {
 			w.Header().Add(k, v)
 		}
