@@ -105,7 +105,7 @@
         <div class="feature-card">
           <span class="icon">&#128268;</span>
           <h3>Plugin System</h3>
-          <p>Ordered hook chains for request/response processing with fail-open design. Built-in request logger and rate limiter included.</p>
+          <p>Ordered hook chains (pre/post HTTP, pre/post LLM) with fail-open design. Built-in plugins for rate limiting, logging, metrics, and tracing. External plugins via WASM sandbox.</p>
         </div>
         <div class="feature-card">
           <span class="icon">&#128695;</span>
@@ -124,11 +124,20 @@
           <p>In-memory LRU cache with TTL for deterministic requests (temperature=0, non-streaming). Reduces costs and latency for repeated queries.</p>
         </div>
 
-        <!-- Coming soon -->
-        <div class="feature-card coming-soon">
-          <span class="coming-soon-badge">Coming Soon</span>
+        <div class="feature-card">
+          <span class="icon">&#129520;</span>
           <h3>WASM Plugin Sandbox</h3>
-          <p>Sandboxed WASM plugins via Extism for external custom logic in any language.</p>
+          <p>Load external <code>.wasm</code> plugins via <a href="https://extism.org/">Extism</a>/wazero — pure Go, no CGo, full sandbox isolation. Write plugins in Go, Rust, TypeScript, Python, and more.</p>
+        </div>
+        <div class="feature-card">
+          <span class="icon">&#128269;</span>
+          <h3>Distributed Tracing</h3>
+          <p>Built-in OpenTelemetry tracing plugin with OTLP HTTP export. Zero overhead when unconfigured.</p>
+        </div>
+        <div class="feature-card">
+          <span class="icon">&#128260;</span>
+          <h3>Config Hot-Reload</h3>
+          <p>Routing and key configuration reloads automatically on file change — no restart, no dropped connections.</p>
         </div>
         <div class="feature-card coming-soon">
           <span class="coming-soon-badge">Coming Soon</span>
@@ -137,8 +146,8 @@
         </div>
         <div class="feature-card coming-soon">
           <span class="coming-soon-badge">Coming Soon</span>
-          <h3>OpenTelemetry Tracing</h3>
-          <p>Distributed tracing with OTel for end-to-end request visibility across providers.</p>
+          <h3>More Providers</h3>
+          <p>Azure OpenAI, AWS Bedrock, Gemini, Groq, and 20+ more to match full Bifrost coverage.</p>
         </div>
       </div>
     </section>
@@ -233,16 +242,17 @@ console.log(completion.choices[0].message.content);</code></pre>
                 ├── Unified OpenAI-compatible API
                 ├── Automatic failover &amp; retries
                 ├── Weighted key rotation
-                └── Plugin hooks (pre/post HTTP, LLM, streaming)
+                ├── Plugin hooks (pre/post HTTP, LLM, streaming)
+                └── WASM plugin sandbox (Extism/wazero)
 
 <span class="highlight">Request Flow:</span>
 
 Client → transport.Server (HTTP)
-       → Plugin Chain (pre-hooks)
+       → Plugin Chain (built-in + WASM pre-hooks)
        → proxy.Engine (routing/dispatch)
-       → provider.Registry
-       → Provider impl
-       → Plugin Chain (post-hooks)
+       → Response Cache (LRU, TTL)
+       → provider.Registry → Provider impl
+       → Plugin Chain (built-in + WASM post-hooks)
        → Response</div>
   </section>
 
