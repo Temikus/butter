@@ -25,30 +25,29 @@ Your App ──▶ Butter ──▶ OpenAI / Anthropic / OpenRouter / ...
 
 ## Features
 
-**Available now:**
-- OpenAI-compatible `/v1/chat/completions` endpoint
-- Streaming (SSE) and non-streaming responses
-- OpenAI, Anthropic, and OpenRouter providers (any OpenAI-compatible API via shared base)
+- OpenAI-compatible `/v1/chat/completions` endpoint — streaming (SSE) and non-streaming
+- OpenAI, Anthropic, and OpenRouter providers; shared base for any OpenAI-compatible API
 - Anthropic format translation (OpenAI requests automatically converted to/from Anthropic's native format)
 - Multi-provider routing with model-specific provider lists and priority/round-robin strategies
-- YAML configuration with environment variable substitution
 - Weighted random key selection with per-key model allowlists
 - Multi-provider failover with configurable retry-on status codes and exponential backoff
-- Plugin system with ordered hook chains (pre/post HTTP, pre/post LLM, stream chunks, observability traces)
-- Built-in request logging plugin (structured slog traces with provider, model, status, duration)
+- **WASM plugin sandbox** via [Extism](https://extism.org/)/wazero — load external `.wasm` plugins with zero CGo, full sandbox isolation
+- Plugin system with ordered hook chains (`pre_http`, `post_http`, `pre_llm`, `post_llm`, stream chunks, observability traces)
+- Plugin short-circuit support (plugins can reject or rewrite requests before they reach the provider)
 - Built-in rate limiter plugin (token bucket, global or per-IP, configurable RPM)
-- Plugin short-circuit support (plugins can reject requests before they reach the provider)
-- Built-in Prometheus metrics plugin (OTel SDK instruments, exposes `/metrics` endpoint)
-- Response caching (in-memory LRU with TTL; cache key from SHA256 of provider+model+messages+params; temperature=0 non-streaming only)
-- Raw HTTP passthrough for unsupported endpoints (`/native/{provider}/*`)
+- Built-in request logging plugin (structured slog, provider/model/status/duration)
+- Built-in Prometheus metrics plugin (OTel SDK instruments, `/metrics` endpoint)
+- Built-in distributed tracing plugin (OTel SDK, OTLP HTTP export)
+- Response caching (in-memory LRU with TTL; SHA256 cache key; temperature=0 non-streaming only)
+- Config hot-reload (mtime polling, atomic engine swap — no restart required)
+- Raw HTTP passthrough for provider-native endpoints (`/native/{provider}/*`)
 - Health check endpoint (`/healthz`)
-- Graceful shutdown
+- Graceful shutdown (SIGINT/SIGTERM)
+- Multi-stage Docker image (distroless base)
 
 **Coming soon:**
-- More providers (20+ to match Bifrost coverage)
-- WASM plugin sandbox via [Extism](https://extism.org/) for external plugins
+- More providers (Azure, Bedrock, Gemini, Groq, and 20+ to match Bifrost coverage)
 - Redis response cache backend
-- OpenTelemetry tracing
 
 ## Quick Start
 
@@ -230,12 +229,13 @@ A [`justfile`](https://github.com/casey/just) is provided for common tasks:
 ```bash
 just build              # Build binary (with commit hash)
 just build-release      # Build with full version info from git
-just serve              # Run with config (auto-loads API keys from ~/.openai/api-key, ~/.openrouter/api-key)
+just serve              # Run with config (auto-loads API keys from ~/.openai/api-key etc.)
 just test               # Run all tests with race detector
 just lint               # Run golangci-lint
 just check              # Run vet + lint + test
 just bench              # Run benchmarks with allocation reporting
 just release-snapshot   # Test GoReleaser locally (no publish)
+just build-example-wasm # Compile example WASM plugin (requires TinyGo)
 ```
 
 Or use Go directly:
@@ -252,15 +252,17 @@ go test ./... -bench=. -benchmem
 butter/
 ├── cmd/butter/                  Main binary
 ├── internal/
-│   ├── config/                  YAML config with env var substitution
+│   ├── config/                  YAML config with env var substitution + hot-reload watcher
 │   ├── transport/               HTTP server and handlers
 │   ├── proxy/                   Core dispatch engine (routing, failover, key selection)
 │   ├── cache/                   Cache interface + in-memory LRU with TTL
 │   ├── plugin/                  Plugin system (interfaces, chain, manager)
+│   │   ├── wasm/                WASM plugin host (Extism/wazero)
 │   │   └── builtin/
 │   │       ├── ratelimit/       Token bucket rate limiter plugin
 │   │       ├── requestlog/      Request logging plugin
-│   │       └── metrics/         Prometheus metrics plugin (OTel SDK)
+│   │       ├── metrics/         Prometheus metrics plugin (OTel SDK)
+│   │       └── tracing/         Distributed tracing plugin (OTel, OTLP HTTP)
 │   └── provider/
 │       ├── provider.go          Provider interface & types
 │       ├── registry.go          Thread-safe provider registry
@@ -268,9 +270,13 @@ butter/
 │       ├── openai/              OpenAI provider
 │       ├── anthropic/           Anthropic provider (format translation)
 │       └── openrouter/          OpenRouter provider
+├── plugin/sdk/                  Public JSON ABI types for WASM plugin authors
+├── plugins/example-wasm/        Example WASM plugin (TinyGo, pre_http hook)
+├── tests/integration/           Integration tests with mock provider servers
 ├── config.example.yaml
+├── Dockerfile                   Multi-stage distroless image
 ├── justfile
-└── go.mod                       (direct: gopkg.in/yaml.v3; indirect: OTel SDK + Prometheus for metrics plugin)
+└── go.mod
 ```
 
 ## Performance Targets
