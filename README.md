@@ -40,6 +40,7 @@ Your App ──▶ Butter ──▶ OpenAI / Anthropic / Groq / Mistral / ...
 - Built-in distributed tracing plugin (OTel SDK, OTLP HTTP export)
 - Response caching (in-memory LRU with TTL; SHA256 cache key; temperature=0 non-streaming only)
 - Config hot-reload (mtime polling, atomic engine swap — no restart required)
+- **Application keys** for usage tracking and attribution — vend `btr_` tokens, track per-key request/token counts, optional enforcement via `require_key`
 - Raw HTTP passthrough for provider-native endpoints (`/native/{provider}/*`)
 - Health check endpoint (`/healthz`)
 - Graceful shutdown (SIGINT/SIGTERM)
@@ -255,6 +256,7 @@ butter/
 │   ├── config/                  YAML config with env var substitution + hot-reload watcher
 │   ├── transport/               HTTP server and handlers
 │   ├── proxy/                   Core dispatch engine (routing, failover, key selection)
+│   ├── appkey/                  Application key store (usage tracking, token counting)
 │   ├── cache/                   Cache interface + in-memory LRU with TTL
 │   ├── plugin/                  Plugin system (interfaces, chain, manager)
 │   │   ├── wasm/                WASM plugin host (Extism/wazero)
@@ -269,7 +271,12 @@ butter/
 │       ├── openaicompat/        Reusable base for OpenAI-compatible APIs
 │       ├── openai/              OpenAI provider
 │       ├── anthropic/           Anthropic provider (format translation)
-│       └── openrouter/          OpenRouter provider
+│       ├── openrouter/          OpenRouter provider
+│       ├── groq/                Groq provider
+│       ├── mistral/             Mistral provider
+│       ├── together/            Together.ai provider
+│       ├── fireworks/           Fireworks provider
+│       └── perplexity/          Perplexity provider
 ├── plugin/sdk/                  Public JSON ABI types for WASM plugin authors
 ├── plugins/example-wasm/        Example WASM plugin (TinyGo, pre_http hook)
 ├── tests/integration/           Integration tests with mock provider servers

@@ -36,13 +36,14 @@ Client → transport.Server (HTTP) → proxy.Engine (routing/dispatch) → provi
 - `internal/provider/openaicompat/` — Shared base for OpenAI-compatible APIs. Line-based SSE parsing with `bufio.Reader`, `sync.Pool` for buffer reuse. Handles `[DONE]` marker.
 - `internal/provider/openai/`, `openrouter/`, `groq/`, `mistral/`, `together/`, `fireworks/`, `perplexity/` — Thin wrappers over `openaicompat` with provider-specific base URLs.
 - `internal/provider/anthropic/` — Standalone implementation with OpenAI↔Anthropic request/response translation.
+- `internal/appkey/` — Application key store. Thread-safe in-memory map of `btr_`-prefixed tokens → per-key usage counters (requests, prompt tokens, completion tokens). Async token counting via goroutine. Zero overhead when disabled (no middleware, no routes registered).
 - `internal/cache/` — Response cache interface + in-memory LRU with TTL. Cache key derived from SHA256(provider + model + messages + params). Only caches non-streaming requests with temperature=0.
 - `internal/plugin/` — Plugin interfaces (`TransportPlugin`, `LLMPlugin`, `ObservabilityPlugin`), ordered `Chain`, and `Manager`. Built-in plugins: `ratelimit/`, `requestlog/`, `metrics/` (OTel SDK, Prometheus `/metrics`), `tracing/` (OTel spans, OTLP HTTP export).
 - `internal/plugin/wasm/` — WASM plugin host built on Extism/wazero (pure Go, BSD-3/Apache-2.0). Uses `CompiledPlugin` (compile-once at startup) + per-call `Instance()` for safe concurrent use. Missing hooks silently skipped. `StreamChunk` is pass-through (per-chunk instantiation cost is prohibitive).
 - `plugin/sdk/` — Public JSON ABI types (`Request`/`Response`) for external WASM plugin authors. Stdlib-only so it compiles with TinyGo.
 - `plugins/example-wasm/` — Example TinyGo plugin demonstrating `pre_http`. Build with `just build-example-wasm`.
 
-**Endpoints:** `POST /v1/chat/completions`, `GET /healthz`, `GET /metrics` (when metrics plugin enabled), `/native/{provider}/*` (raw passthrough)
+**Endpoints:** `POST /v1/chat/completions`, `GET /healthz`, `GET /metrics` (when metrics plugin enabled), `/native/{provider}/*` (raw passthrough). When `app_keys.enabled: true`: `POST /v1/app-keys` (vend key), `GET /v1/app-keys` (list keys), `GET /v1/app-keys/{key}/usage` (per-key stats), `GET /v1/usage` (aggregate stats).
 
 ## Design Constraints
 
@@ -54,12 +55,11 @@ Client → transport.Server (HTTP) → proxy.Engine (routing/dispatch) → provi
 
 ## Phased Roadmap
 
-Phases 1–5 are complete. Phase 3 WASM is now also complete.
-
 - **Phase 1** (PoC): complete
 - **Phase 2** (Multi-Provider + Routing): complete
 - **Phase 3** (Plugin System): complete — Go plugin interfaces + chain + manager + built-in plugins (ratelimit, requestlog, metrics, tracing) + WASM host (Extism/wazero, JSON ABI, plugin SDK, example plugin)
 - **Phase 4** (Caching + Observability): complete — in-memory LRU cache, OTel tracing (OTLP HTTP), Prometheus metrics, slog
 - **Phase 5** (Production): complete — graceful shutdown, healthz, Docker (distroless), 22 integration tests, config hot-reload, benchmarks
 - **Phase 6** (Provider Expansion): complete — Groq, Mistral, Together.ai, Fireworks, Perplexity (all via openaicompat)
+- **Phase 7** (Application Keys): complete — `btr_` token vending, per-key usage tracking (requests + prompt/completion tokens), optional `require_key` enforcement, management endpoints, 6 integration tests
 - **Next**: Azure OpenAI, Bedrock, Gemini, or Redis cache backend
