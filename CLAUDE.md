@@ -33,7 +33,9 @@ Client → transport.Server (HTTP) → proxy.Engine (routing/dispatch) → provi
 - `internal/transport/` — HTTP server using Go 1.22+ `ServeMux` pattern routing. Handles streaming detection via `bytes.Contains` (no full JSON parse) and SSE relay with per-chunk flush via `http.Flusher`.
 - `internal/proxy/` — Engine resolves provider via: explicit `provider` field in request → model-based route from config → default provider. Selects API key and dispatches.
 - `internal/provider/` — `Provider` interface (`ChatCompletion`, `ChatCompletionStream`, `Passthrough`, `SupportsOperation`) + thread-safe `Registry` (RWMutex).
-- `internal/provider/openrouter/` — OpenRouter implementation. Line-based SSE parsing with `bufio.Reader`, `sync.Pool` for buffer reuse. Handles `[DONE]` marker.
+- `internal/provider/openaicompat/` — Shared base for OpenAI-compatible APIs. Line-based SSE parsing with `bufio.Reader`, `sync.Pool` for buffer reuse. Handles `[DONE]` marker.
+- `internal/provider/openai/`, `openrouter/`, `groq/`, `mistral/`, `together/`, `fireworks/`, `perplexity/` — Thin wrappers over `openaicompat` with provider-specific base URLs.
+- `internal/provider/anthropic/` — Standalone implementation with OpenAI↔Anthropic request/response translation.
 - `internal/cache/` — Response cache interface + in-memory LRU with TTL. Cache key derived from SHA256(provider + model + messages + params). Only caches non-streaming requests with temperature=0.
 - `internal/plugin/` — Plugin interfaces (`TransportPlugin`, `LLMPlugin`, `ObservabilityPlugin`), ordered `Chain`, and `Manager`. Built-in plugins: `ratelimit/`, `requestlog/`, `metrics/` (OTel SDK, Prometheus `/metrics`), `tracing/` (OTel spans, OTLP HTTP export).
 - `internal/plugin/wasm/` — WASM plugin host built on Extism/wazero (pure Go, BSD-3/Apache-2.0). Uses `CompiledPlugin` (compile-once at startup) + per-call `Instance()` for safe concurrent use. Missing hooks silently skipped. `StreamChunk` is pass-through (per-chunk instantiation cost is prohibitive).
@@ -59,4 +61,5 @@ Phases 1–5 are complete. Phase 3 WASM is now also complete.
 - **Phase 3** (Plugin System): complete — Go plugin interfaces + chain + manager + built-in plugins (ratelimit, requestlog, metrics, tracing) + WASM host (Extism/wazero, JSON ABI, plugin SDK, example plugin)
 - **Phase 4** (Caching + Observability): complete — in-memory LRU cache, OTel tracing (OTLP HTTP), Prometheus metrics, slog
 - **Phase 5** (Production): complete — graceful shutdown, healthz, Docker (distroless), 22 integration tests, config hot-reload, benchmarks
-- **Next**: provider expansion (Azure, Bedrock, Gemini, Groq, …) or Redis cache backend
+- **Phase 6** (Provider Expansion): complete — Groq, Mistral, Together.ai, Fireworks, Perplexity (all via openaicompat)
+- **Next**: Azure OpenAI, Bedrock, Gemini, or Redis cache backend

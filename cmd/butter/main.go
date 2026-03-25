@@ -22,8 +22,13 @@ import (
 	"github.com/temikus/butter/internal/version"
 	"github.com/temikus/butter/internal/provider"
 	"github.com/temikus/butter/internal/provider/anthropic"
+	"github.com/temikus/butter/internal/provider/fireworks"
+	"github.com/temikus/butter/internal/provider/groq"
+	"github.com/temikus/butter/internal/provider/mistral"
 	"github.com/temikus/butter/internal/provider/openai"
 	"github.com/temikus/butter/internal/provider/openrouter"
+	"github.com/temikus/butter/internal/provider/perplexity"
+	"github.com/temikus/butter/internal/provider/together"
 	"github.com/temikus/butter/internal/proxy"
 	"github.com/temikus/butter/internal/transport"
 )
@@ -70,6 +75,16 @@ func main() {
 			registry.Register(openai.New(provCfg.BaseURL, httpClient))
 		case "anthropic":
 			registry.Register(anthropic.New(provCfg.BaseURL, httpClient))
+		case "groq":
+			registry.Register(groq.New(provCfg.BaseURL, httpClient))
+		case "mistral":
+			registry.Register(mistral.New(provCfg.BaseURL, httpClient))
+		case "together":
+			registry.Register(together.New(provCfg.BaseURL, httpClient))
+		case "fireworks":
+			registry.Register(fireworks.New(provCfg.BaseURL, httpClient))
+		case "perplexity":
+			registry.Register(perplexity.New(provCfg.BaseURL, httpClient))
 		default:
 			logger.Warn("unknown provider, skipping", "provider", name)
 		}

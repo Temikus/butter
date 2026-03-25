@@ -15,7 +15,7 @@ A blazingly fast AI proxy gateway written in Go. Butter sits between your applic
 Inspired by [Bifrost](https://github.com/maximhq/bifrost), but with a focus on simplicity, extensibility via WASM plugins, and raw performance.
 
 ```
-Your App ──▶ Butter ──▶ OpenAI / Anthropic / OpenRouter / ...
+Your App ──▶ Butter ──▶ OpenAI / Anthropic / Groq / Mistral / ...
                 │
                 ├── Unified OpenAI-compatible API
                 ├── Automatic failover & retries
@@ -26,7 +26,7 @@ Your App ──▶ Butter ──▶ OpenAI / Anthropic / OpenRouter / ...
 ## Features
 
 - OpenAI-compatible `/v1/chat/completions` endpoint — streaming (SSE) and non-streaming
-- OpenAI, Anthropic, and OpenRouter providers; shared base for any OpenAI-compatible API
+- **8 providers**: OpenAI, Anthropic, OpenRouter, Groq, Mistral, Together.ai, Fireworks, Perplexity — shared `openaicompat` base for any OpenAI-compatible API
 - Anthropic format translation (OpenAI requests automatically converted to/from Anthropic's native format)
 - Multi-provider routing with model-specific provider lists and priority/round-robin strategies
 - Weighted random key selection with per-key model allowlists
@@ -46,7 +46,7 @@ Your App ──▶ Butter ──▶ OpenAI / Anthropic / OpenRouter / ...
 - Multi-stage Docker image (distroless base)
 
 **Coming soon:**
-- More providers (Azure, Bedrock, Gemini, Groq, and 20+ to match Bifrost coverage)
+- More providers (Azure, Bedrock, Gemini, and more to match Bifrost coverage)
 - Redis response cache backend
 
 ## Quick Start
@@ -54,7 +54,7 @@ Your App ──▶ Butter ──▶ OpenAI / Anthropic / OpenRouter / ...
 ### Prerequisites
 
 - Go 1.25+ (uses enhanced `ServeMux` pattern routing)
-- An API key for a supported provider ([OpenAI](https://platform.openai.com/), [Anthropic](https://console.anthropic.com/), [OpenRouter](https://openrouter.ai/), or any OpenAI-compatible API)
+- An API key for a supported provider ([OpenAI](https://platform.openai.com/), [Anthropic](https://console.anthropic.com/), [OpenRouter](https://openrouter.ai/), [Groq](https://console.groq.com/), [Mistral](https://console.mistral.ai/), [Together.ai](https://api.together.xyz/), [Fireworks](https://fireworks.ai/), [Perplexity](https://www.perplexity.ai/), or any OpenAI-compatible API)
 
 ### 1. Install
 

@@ -22,6 +22,36 @@ providers:
       - key: "${ANTHROPIC_API_KEY}"
         weight: 1
 
+  # groq:
+  #   base_url: https://api.groq.com/openai/v1
+  #   keys:
+  #     - key: "${GROQ_API_KEY}"
+  #       weight: 1
+
+  # mistral:
+  #   base_url: https://api.mistral.ai/v1
+  #   keys:
+  #     - key: "${MISTRAL_API_KEY}"
+  #       weight: 1
+
+  # together:
+  #   base_url: https://api.together.xyz/v1
+  #   keys:
+  #     - key: "${TOGETHER_API_KEY}"
+  #       weight: 1
+
+  # fireworks:
+  #   base_url: https://api.fireworks.ai/inference/v1
+  #   keys:
+  #     - key: "${FIREWORKS_API_KEY}"
+  #       weight: 1
+
+  # perplexity:
+  #   base_url: https://api.perplexity.ai
+  #   keys:
+  #     - key: "${PERPLEXITY_API_KEY}"
+  #       weight: 1
+
 routing:
   default_provider: openrouter
 
