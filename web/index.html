@@ -85,7 +85,7 @@
         <div class="feature-card">
           <span class="icon">&#127919;</span>
           <h3>Multi-Provider Routing</h3>
-          <p>Route models to OpenAI, Anthropic, and OpenRouter with priority or round-robin strategies.</p>
+          <p>Route models to 8 providers — OpenAI, Anthropic, OpenRouter, Groq, Mistral, Together.ai, Fireworks, Perplexity — with priority or round-robin strategies.</p>
         </div>
         <div class="feature-card">
           <span class="icon">&#128259;</span>
@@ -139,6 +139,16 @@
           <h3>Config Hot-Reload</h3>
           <p>Routing and key configuration reloads automatically on file change — no restart, no dropped connections.</p>
         </div>
+        <div class="feature-card">
+          <span class="icon">&#128273;</span>
+          <h3>Application Keys</h3>
+          <p>Vend <code>btr_</code> tokens for usage tracking and attribution. Per-key request and token counters with optional <code>require_key</code> enforcement.</p>
+        </div>
+        <div class="feature-card">
+          <span class="icon">&#128737;&#65039;</span>
+          <h3>Prompt Injection Guard</h3>
+          <p>WASM plugin scanning for ~60 injection patterns across 7 categories with Unicode bypass detection. Block, log, or tag modes.</p>
+        </div>
         <div class="feature-card coming-soon">
           <span class="coming-soon-badge">Coming Soon</span>
           <h3>Redis Cache Backend</h3>
@@ -147,7 +157,7 @@
         <div class="feature-card coming-soon">
           <span class="coming-soon-badge">Coming Soon</span>
           <h3>More Providers</h3>
-          <p>Azure OpenAI, AWS Bedrock, Gemini, Groq, and 20+ more to match full Bifrost coverage.</p>
+          <p>Azure OpenAI, AWS Bedrock, Gemini, and more to match full Bifrost coverage.</p>
         </div>
       </div>
     </section>
@@ -237,7 +247,7 @@ console.log(completion.choices[0].message.content);</code></pre>
     <h2 class="section-title">Architecture</h2>
     <p class="section-subtitle">Minimal layers, maximum throughput.</p>
 
-    <div class="architecture-diagram">Your App ──▶ <span class="highlight">Butter</span> ──▶ OpenAI / Anthropic / OpenRouter / ...
+    <div class="architecture-diagram">Your App ──▶ <span class="highlight">Butter</span> ──▶ OpenAI / Anthropic / Groq / Mistral / ...
                 │
                 ├── Unified OpenAI-compatible API
                 ├── Automatic failover &amp; retries
