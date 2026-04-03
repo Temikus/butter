@@ -8,6 +8,7 @@
 
 <p align="center">
   <a href="https://github.com/Temikus/butter/releases"><img src="https://img.shields.io/github/v/release/Temikus/butter" alt="Release"></a> <a href="https://github.com/Temikus/butter/actions/workflows/ci.yml"><img src="https://github.com/Temikus/butter/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a> <a href="https://goreportcard.com/report/github.com/temikus/butter"><img src="https://goreportcard.com/badge/github.com/temikus/butter" alt="Go Report Card"></a> <a href="https://github.com/Temikus/butter/blob/main/go.mod"><img src="https://img.shields.io/github/go-mod/go-version/Temikus/butter" alt="Go Version"></a> <a href="https://github.com/Temikus/butter/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Temikus/butter" alt="License"></a>
+<a href="https://app.fossa.com/projects/git%2Bgithub.com%2FTemikus%2Fbutter?ref=badge_shield" alt="FOSSA Status"><img src="https://app.fossa.com/api/projects/git%2Bgithub.com%2FTemikus%2Fbutter.svg?type=shield"/></a>
 </p>
 
 A blazingly fast AI proxy gateway written in Go. Butter sits between your application and AI providers, offering a unified OpenAI-compatible API with minimal latency overhead.
@@ -22,6 +23,9 @@ Your App ──▶ Butter ──▶ OpenAI / Anthropic / Groq / Mistral / ...
                 ├── Weighted key rotation
                 └── Plugin hooks (Go + WASM)
 ```
+
+
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FTemikus%2Fbutter.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2FTemikus%2Fbutter?ref=badge_large)
 
 ## Features
 
