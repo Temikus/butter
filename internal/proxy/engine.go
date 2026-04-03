@@ -420,6 +420,115 @@ func (e *Engine) DispatchPassthrough(ctx context.Context, providerName, method, 
 	return p.Passthrough(ctx, method, path, body, headers)
 }
 
+// DispatchEmbeddings routes an embedding request to a capable provider.
+func (e *Engine) DispatchEmbeddings(ctx context.Context, rawBody []byte) (*provider.EmbeddingResponse, error) {
+	st := e.st.Load()
+
+	// Minimal parse — only extract model and optional provider.
+	var partial struct {
+		Model    string `json:"model"`
+		Provider string `json:"provider"`
+	}
+	if err := json.Unmarshal(rawBody, &partial); err != nil {
+		return nil, fmt.Errorf("invalid request body: %w", err)
+	}
+	if partial.Model == "" {
+		return nil, fmt.Errorf("missing required field: model")
+	}
+
+	providerNames := e.resolveProviders(st, partial.Model, partial.Provider)
+	if len(providerNames) == 0 {
+		return nil, fmt.Errorf("no provider configured for model %q", partial.Model)
+	}
+
+	failover := st.cfg.Routing.Failover
+	var lastErr error
+
+	for _, name := range providerNames {
+		p, err := e.registry.Get(name)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		ep, ok := p.(provider.EmbeddingProvider)
+		if !ok {
+			lastErr = fmt.Errorf("provider %q does not support embeddings", name)
+			continue
+		}
+
+		maxAttempts := 1
+		if failover.Enabled {
+			maxAttempts = failover.MaxRetries + 1
+		}
+
+		for attempt := range maxAttempts {
+			if attempt > 0 {
+				e.backoff(st, attempt-1)
+			}
+
+			apiKey := e.selectKey(st, name, partial.Model)
+			req := &provider.EmbeddingRequest{
+				Model:   partial.Model,
+				RawBody: rawBody,
+				APIKey:  apiKey,
+			}
+
+			e.logger.Info("dispatching embeddings", "provider", name, "model", partial.Model)
+			resp, err := ep.Embeddings(ctx, req)
+			if err != nil {
+				lastErr = err
+				var pe *provider.ProviderError
+				if errors.As(err, &pe) && e.isRetryable(st, pe.StatusCode) {
+					continue
+				}
+				break
+			}
+			return resp, nil
+		}
+	}
+
+	return nil, lastErr
+}
+
+// ListModels returns the list of models derived from the routing configuration.
+func (e *Engine) ListModels() *provider.ModelListResponse {
+	st := e.st.Load()
+	models := make([]provider.ModelInfo, 0, len(st.cfg.Routing.Models))
+
+	for modelID, route := range st.cfg.Routing.Models {
+		ownedBy := "butter"
+		if len(route.Providers) > 0 {
+			ownedBy = route.Providers[0]
+		}
+		models = append(models, provider.ModelInfo{
+			ID:      modelID,
+			Object:  "model",
+			Created: 0,
+			OwnedBy: ownedBy,
+		})
+	}
+
+	return &provider.ModelListResponse{
+		Object: "list",
+		Data:   models,
+	}
+}
+
+// resolveProviders determines the ordered list of providers for a given model.
+func (e *Engine) resolveProviders(st *engineState, model, explicitProvider string) []string {
+	if explicitProvider != "" {
+		return []string{explicitProvider}
+	}
+	if route, ok := st.cfg.Routing.Models[model]; ok && len(route.Providers) > 0 {
+		return route.Providers
+	}
+	if st.cfg.Routing.DefaultProvider != "" {
+		return []string{st.cfg.Routing.DefaultProvider}
+	}
+	return nil
+}
+
 func containsString(ss []string, s string) bool {
 	for _, v := range ss {
 		if v == s {

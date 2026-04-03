@@ -34,24 +34,25 @@ Client → transport.Server (HTTP) → proxy.Engine (routing/dispatch) → provi
 - `internal/config/` — YAML config with `${ENV_VAR}` substitution via regexp. Applies typed defaults for zero-valued fields. `watcher.go` polls mtime and swaps engine state atomically (no restart needed).
 - `internal/transport/` — HTTP server using Go 1.22+ `ServeMux` pattern routing. Handles streaming detection via `bytes.Contains` (no full JSON parse) and SSE relay with per-chunk flush via `http.Flusher`.
 - `internal/proxy/` — Engine resolves provider via: explicit `provider` field in request → model-based route from config → default provider. Selects API key and dispatches.
-- `internal/provider/` — `Provider` interface (`ChatCompletion`, `ChatCompletionStream`, `Passthrough`, `SupportsOperation`) + thread-safe `Registry` (RWMutex).
+- `internal/provider/` — `Provider` interface (`ChatCompletion`, `ChatCompletionStream`, `Passthrough`, `SupportsOperation`) + optional `EmbeddingProvider` interface + thread-safe `Registry` (RWMutex).
 - `internal/provider/openaicompat/` — Shared base for OpenAI-compatible APIs. Line-based SSE parsing with `bufio.Reader`, `sync.Pool` for buffer reuse. Handles `[DONE]` marker.
 - `internal/provider/openai/`, `openrouter/`, `groq/`, `mistral/`, `together/`, `fireworks/`, `perplexity/` — Thin wrappers over `openaicompat` with provider-specific base URLs.
 - `internal/provider/anthropic/` — Standalone implementation with OpenAI↔Anthropic request/response translation.
+- `internal/provider/gemini/` — Standalone implementation with OpenAI↔Gemini request/response translation. Model-in-URL routing, `?key=` auth, streaming via `streamGenerateContent?alt=sse`.
 - `internal/appkey/` — Application key store. Thread-safe in-memory map of `btr_`-prefixed tokens → per-key usage counters (requests, prompt tokens, completion tokens). Async token counting via goroutine. Zero overhead when disabled (no middleware, no routes registered).
-- `internal/cache/` — Response cache interface + in-memory LRU with TTL. Cache key derived from SHA256(provider + model + messages + params). Only caches non-streaming requests with temperature=0.
+- `internal/cache/` — Response cache interface with in-memory LRU and Redis backends. Cache key derived from SHA256(provider + model + messages + params). Only caches non-streaming requests with temperature=0. Redis backend uses `go-redis/v9` with key prefixing and native TTL.
 - `internal/plugin/` — Plugin interfaces (`TransportPlugin`, `LLMPlugin`, `ObservabilityPlugin`), ordered `Chain`, and `Manager`. Built-in plugins: `ratelimit/`, `requestlog/`, `metrics/` (OTel SDK, Prometheus `/metrics`), `tracing/` (OTel spans, OTLP HTTP export).
 - `internal/plugin/wasm/` — WASM plugin host built on Extism/wazero (pure Go, BSD-3/Apache-2.0). Uses `CompiledPlugin` (compile-once at startup) + per-call `Instance()` for safe concurrent use. Missing hooks silently skipped. `StreamChunk` is pass-through (per-chunk instantiation cost is prohibitive).
 - `plugin/sdk/` — Public JSON ABI types (`Request`/`Response`) for external WASM plugin authors. Stdlib-only so it compiles with TinyGo.
 - `plugins/example-wasm/` — Example TinyGo plugin demonstrating `pre_http`. Build with `just build-example-wasm`.
 - `plugins/prompt-injection-guard/` — Prompt injection detection WASM plugin. Scans chat messages for ~60 injection patterns across 7 categories with Unicode bypass detection. Supports block/log/tag modes. Build with `just build-injection-guard`.
 
-**Endpoints:** `POST /v1/chat/completions`, `GET /healthz`, `GET /metrics` (when metrics plugin enabled), `/native/{provider}/*` (raw passthrough). When `app_keys.enabled: true`: `POST /v1/app-keys` (vend key), `GET /v1/app-keys` (list keys), `GET /v1/app-keys/{key}/usage` (per-key stats), `GET /v1/usage` (aggregate stats).
+**Endpoints:** `POST /v1/chat/completions`, `POST /v1/embeddings`, `GET /v1/models`, `GET /healthz`, `GET /metrics` (when metrics plugin enabled), `/native/{provider}/*` (raw passthrough). When `app_keys.enabled: true`: `POST /v1/app-keys` (vend key), `GET /v1/app-keys` (list keys), `GET /v1/app-keys/{key}/usage` (per-key stats), `GET /v1/usage` (aggregate stats).
 
 ## Design Constraints
 
 - stdlib-only HTTP (no frameworks) — performance target is <50μs proxy overhead
-- Direct dependency: `gopkg.in/yaml.v3`; metrics/tracing plugins add OTel SDK + Prometheus; WASM host adds Extism/wazero
+- Direct dependency: `gopkg.in/yaml.v3`; metrics/tracing plugins add OTel SDK + Prometheus; WASM host adds Extism/wazero; Redis cache adds `go-redis/v9`
 - Streaming uses direct byte relay (no JSON re-serialization)
 - Go 1.22+ required for pattern-based ServeMux routing
 - No HashiCorp licensed dependencies; all deps are Apache-2.0, MIT, BSD, or MPL-2.0
@@ -65,4 +66,5 @@ Client → transport.Server (HTTP) → proxy.Engine (routing/dispatch) → provi
 - **Phase 5** (Production): complete — graceful shutdown, healthz, Docker (distroless), 22 integration tests, config hot-reload, benchmarks
 - **Phase 6** (Provider Expansion): complete — Groq, Mistral, Together.ai, Fireworks, Perplexity (all via openaicompat)
 - **Phase 7** (Application Keys): complete — `btr_` token vending, per-key usage tracking (requests + prompt/completion tokens), optional `require_key` enforcement, management endpoints, 6 integration tests
-- **Next**: Azure OpenAI, Bedrock, Gemini, or Redis cache backend
+- **Phase 8** (API Completeness + Gemini + Redis): complete — `/v1/embeddings` endpoint (optional `EmbeddingProvider` interface, openaicompat support), `/v1/models` endpoint (config-derived model list), Redis cache backend (`go-redis/v9`, key-prefixed, configurable), Google Gemini provider (standalone OpenAI↔Gemini translation, streaming via SSE, `?key=` auth)
+- **Next**: Azure OpenAI, Bedrock, Vertex AI, or semantic cache plugin

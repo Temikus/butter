@@ -26,9 +26,10 @@ func TestSupportsOperation(t *testing.T) {
 		want bool
 	}{
 		{provider.OpChatCompletion, true},
+		{provider.OpChatCompletionStream, true},
 		{provider.OpPassthrough, true},
 		{provider.OpModels, true},
-		{provider.OpEmbeddings, false},
+		{provider.OpEmbeddings, true},
 	}
 
 	for _, tt := range tests {
@@ -324,6 +325,66 @@ func TestBuildRequestNoAPIKey(t *testing.T) {
 	}
 	if resp.StatusCode != 200 {
 		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestEmbeddings(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		if r.URL.Path != "/embeddings" {
+			t.Errorf("expected /embeddings, got %s", r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer test-key" {
+			t.Errorf("expected Bearer test-key, got %s", r.Header.Get("Authorization"))
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		_, _ = fmt.Fprint(w, `{"object":"list","data":[{"object":"embedding","index":0,"embedding":[0.1,0.2]}]}`)
+	}))
+	defer server.Close()
+
+	p := New("test", server.URL, nil)
+	resp, err := p.Embeddings(context.Background(), &provider.EmbeddingRequest{
+		Model:   "text-embedding-3-small",
+		RawBody: []byte(`{"model":"text-embedding-3-small","input":"hello"}`),
+		APIKey:  "test-key",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.StatusCode != 200 {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+	if string(resp.RawBody) != `{"object":"list","data":[{"object":"embedding","index":0,"embedding":[0.1,0.2]}]}` {
+		t.Errorf("unexpected body: %s", resp.RawBody)
+	}
+}
+
+func TestEmbeddingsError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(400)
+		_, _ = fmt.Fprint(w, `{"error":"bad request"}`)
+	}))
+	defer server.Close()
+
+	p := New("test", server.URL, nil)
+	_, err := p.Embeddings(context.Background(), &provider.EmbeddingRequest{
+		Model:   "test",
+		RawBody: []byte(`{"model":"test","input":"hello"}`),
+		APIKey:  "test-key",
+	})
+	if err == nil {
+		t.Fatal("expected error for 400 response")
+	}
+	pe, ok := err.(*provider.ProviderError)
+	if !ok {
+		t.Fatalf("expected *provider.ProviderError, got %T", err)
+	}
+	if pe.StatusCode != 400 {
+		t.Errorf("expected status 400, got %d", pe.StatusCode)
 	}
 }
 

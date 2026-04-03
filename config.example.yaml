@@ -52,6 +52,12 @@ providers:
   #     - key: "${PERPLEXITY_API_KEY}"
   #       weight: 1
 
+  # gemini:
+  #   base_url: https://generativelanguage.googleapis.com
+  #   keys:
+  #     - key: "${GEMINI_API_KEY}"
+  #       weight: 1
+
 routing:
   default_provider: openrouter
 
@@ -80,8 +86,14 @@ routing:
 
 cache:
   enabled: true
+  backend: memory        # "memory" (default) or "redis"
   ttl: 5m               # Time-to-live for cached responses
-  max_entries: 10000     # Maximum number of cached responses (LRU eviction)
+  max_entries: 10000     # Maximum number of cached responses (LRU eviction, memory only)
+  # redis:              # Required when backend: redis
+  #   address: localhost:6379
+  #   password: ""
+  #   db: 0
+  #   key_prefix: "butter:"
 
 plugins:
   ratelimit:

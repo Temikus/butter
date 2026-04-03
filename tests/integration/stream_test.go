@@ -78,6 +78,39 @@ func TestStream_AnthropicTranslation(t *testing.T) {
 	}
 }
 
+func TestStream_GeminiTranslation(t *testing.T) {
+	mock := mockGemini(t, geminiStream)
+	butter := newServerCfg().
+		withProvider("gemini", mock.URL).
+		withDefault("gemini").
+		build(t)
+
+	req := `{"model":"gemini-2.0-flash","messages":[{"role":"user","content":"hello"}],"stream":true}`
+	resp, err := http.Post(butter.URL+"/v1/chat/completions", "application/json", strings.NewReader(req))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+	}
+
+	chunks := collectSSEChunks(t, resp.Body)
+
+	if len(chunks) == 0 {
+		t.Fatal("expected at least one translated SSE chunk")
+	}
+	// Gemini stream should be translated to OpenAI format.
+	if !containsContent(chunks, "Hello") {
+		t.Errorf("expected translated 'Hello' content in stream, got chunks: %v", chunks)
+	}
+	if !containsContent(chunks, "Gemini") {
+		t.Errorf("expected 'Gemini' content in stream, got chunks: %v", chunks)
+	}
+}
+
 // collectSSEChunks reads an SSE response body and returns all "data: ..." lines.
 func collectSSEChunks(t *testing.T, body io.Reader) []string {
 	t.Helper()

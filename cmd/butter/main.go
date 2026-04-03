@@ -24,6 +24,7 @@ import (
 	"github.com/temikus/butter/internal/provider"
 	"github.com/temikus/butter/internal/provider/anthropic"
 	"github.com/temikus/butter/internal/provider/fireworks"
+	"github.com/temikus/butter/internal/provider/gemini"
 	"github.com/temikus/butter/internal/provider/groq"
 	"github.com/temikus/butter/internal/provider/mistral"
 	"github.com/temikus/butter/internal/provider/openai"
@@ -84,6 +85,8 @@ func main() {
 			registry.Register(together.New(provCfg.BaseURL, httpClient))
 		case "fireworks":
 			registry.Register(fireworks.New(provCfg.BaseURL, httpClient))
+		case "gemini":
+			registry.Register(gemini.New(provCfg.BaseURL, httpClient))
 		case "perplexity":
 			registry.Register(perplexity.New(provCfg.BaseURL, httpClient))
 		default:
@@ -158,11 +161,35 @@ func main() {
 
 	// Response cache.
 	if cfg.Cache.Enabled {
-		logger.Info("response cache enabled",
-			"max_entries", cfg.Cache.MaxEntries,
-			"ttl", cfg.Cache.TTL,
-		)
-		engine.SetCache(cache.NewMemory(cfg.Cache.MaxEntries), cfg.Cache.TTL)
+		var c cache.Cache
+		switch cfg.Cache.Backend {
+		case "redis":
+			rc, err := cache.NewRedis(
+				cfg.Cache.Redis.Address,
+				cfg.Cache.Redis.Password,
+				cfg.Cache.Redis.DB,
+				cfg.Cache.Redis.KeyPrefix,
+			)
+			if err != nil {
+				logger.Error("failed to connect to Redis cache", "error", err)
+				os.Exit(1)
+			}
+			defer func() { _ = rc.Close() }()
+			c = rc
+			logger.Info("response cache enabled",
+				"backend", "redis",
+				"address", cfg.Cache.Redis.Address,
+				"ttl", cfg.Cache.TTL,
+			)
+		default: // "memory"
+			c = cache.NewMemory(cfg.Cache.MaxEntries)
+			logger.Info("response cache enabled",
+				"backend", "memory",
+				"max_entries", cfg.Cache.MaxEntries,
+				"ttl", cfg.Cache.TTL,
+			)
+		}
+		engine.SetCache(c, cfg.Cache.TTL)
 	}
 
 	server := transport.NewServer(&cfg.Server, engine, logger, pluginChain, serverOpts...)

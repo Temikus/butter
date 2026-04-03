@@ -18,6 +18,7 @@ import (
 	"github.com/temikus/butter/internal/plugin"
 	"github.com/temikus/butter/internal/provider"
 	"github.com/temikus/butter/internal/provider/anthropic"
+	"github.com/temikus/butter/internal/provider/gemini"
 	"github.com/temikus/butter/internal/provider/openai"
 	"github.com/temikus/butter/internal/provider/openrouter"
 	"github.com/temikus/butter/internal/proxy"
@@ -99,6 +100,8 @@ func (c *serverCfg) build(t *testing.T) *httptest.Server {
 			registry.Register(openrouter.New(baseURL, httpClient))
 		case "anthropic":
 			registry.Register(anthropic.New(baseURL, httpClient))
+		case "gemini":
+			registry.Register(gemini.New(baseURL, httpClient))
 		}
 	}
 
@@ -163,6 +166,7 @@ func mockOpenAI(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /chat/completions", handler)
+	mux.HandleFunc("POST /embeddings", openAIEmbeddingsSuccess)
 	// Catch-all for passthrough tests
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -214,6 +218,17 @@ func openAIStream(w http.ResponseWriter, _ *http.Request) {
 	}
 }
 
+func openAIEmbeddingsSuccess(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = fmt.Fprint(w, `{
+		"object": "list",
+		"data": [{"object": "embedding", "index": 0, "embedding": [0.1, 0.2, 0.3]}],
+		"model": "text-embedding-3-small",
+		"usage": {"prompt_tokens": 5, "total_tokens": 5}
+	}`)
+}
+
 // errorHandler returns a handler that always responds with the given status.
 func errorHandler(code int) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
@@ -250,6 +265,49 @@ func anthropicSuccess(w http.ResponseWriter, _ *http.Request) {
 		"stop_reason": "end_turn",
 		"usage": {"input_tokens": 10, "output_tokens": 5}
 	}`)
+}
+
+// ─── Gemini Mock Server ───────────────────────────────────────────────────────
+//
+// Gemini uses model name in URL path: /v1beta/models/{model}:generateContent
+
+func mockGemini(t *testing.T, handler http.HandlerFunc) *httptest.Server {
+	t.Helper()
+	if handler == nil {
+		handler = geminiSuccess
+	}
+	mux := http.NewServeMux()
+	// Gemini uses model name in URL path, match with wildcard.
+	mux.HandleFunc("/", handler)
+	ts := httptest.NewServer(mux)
+	t.Cleanup(ts.Close)
+	return ts
+}
+
+func geminiSuccess(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = fmt.Fprint(w, `{
+		"candidates": [{
+			"content": {"parts": [{"text": "Hello from Gemini!"}], "role": "model"},
+			"finishReason": "STOP"
+		}],
+		"usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 5, "totalTokenCount": 15}
+	}`)
+}
+
+func geminiStream(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.WriteHeader(http.StatusOK)
+	f := w.(http.Flusher)
+	for _, chunk := range []string{
+		`data: {"candidates":[{"content":{"parts":[{"text":"Hello"}],"role":"model"}}]}`,
+		`data: {"candidates":[{"content":{"parts":[{"text":" from Gemini!"}],"role":"model"},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":5,"candidatesTokenCount":3,"totalTokenCount":8}}`,
+	} {
+		_, _ = fmt.Fprintf(w, "%s\n\n", chunk)
+		f.Flush()
+	}
 }
 
 func anthropicStream(w http.ResponseWriter, _ *http.Request) {

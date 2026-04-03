@@ -95,6 +95,39 @@ func TestChat_AnthropicTranslation(t *testing.T) {
 	}
 }
 
+func TestChat_GeminiTranslation(t *testing.T) {
+	mock := mockGemini(t, nil)
+	butter := newServerCfg().
+		withProvider("gemini", mock.URL).
+		withDefault("gemini").
+		build(t)
+
+	reqGemini := `{"model":"gemini-2.0-flash","messages":[{"role":"user","content":"hello"}]}`
+	resp, err := http.Post(butter.URL+"/v1/chat/completions", "application/json", strings.NewReader(reqGemini))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+	}
+
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decoding response: %v", err)
+	}
+	choices, ok := result["choices"].([]any)
+	if !ok || len(choices) == 0 {
+		t.Fatalf("expected choices after translation, got: %v", result)
+	}
+	msg := choices[0].(map[string]any)["message"].(map[string]any)
+	if msg["content"] != "Hello from Gemini!" {
+		t.Errorf("expected translated content 'Hello from Gemini!', got: %v", msg["content"])
+	}
+}
+
 func TestChat_ModelBasedRouting(t *testing.T) {
 	var openaiCalls, anthropicCalls atomic.Int32
 

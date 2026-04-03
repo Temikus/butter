@@ -42,10 +42,41 @@ func (p *Provider) Name() string { return p.name }
 
 func (p *Provider) SupportsOperation(op provider.Operation) bool {
 	switch op {
-	case provider.OpChatCompletion, provider.OpPassthrough, provider.OpModels:
+	case provider.OpChatCompletion, provider.OpChatCompletionStream, provider.OpPassthrough, provider.OpModels, provider.OpEmbeddings:
 		return true
 	}
 	return false
+}
+
+func (p *Provider) Embeddings(ctx context.Context, req *provider.EmbeddingRequest) (*provider.EmbeddingResponse, error) {
+	httpReq, err := p.buildRequest(ctx, "POST", "/embeddings", req.RawBody, req.APIKey)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := p.client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("%s embeddings request failed: %w", p.name, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading embeddings response: %w", err)
+	}
+
+	if resp.StatusCode >= 400 {
+		return nil, &provider.ProviderError{
+			StatusCode: resp.StatusCode,
+			Message:    string(body),
+		}
+	}
+
+	return &provider.EmbeddingResponse{
+		RawBody:    body,
+		StatusCode: resp.StatusCode,
+		Headers:    resp.Header,
+	}, nil
 }
 
 func (p *Provider) ChatCompletion(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {

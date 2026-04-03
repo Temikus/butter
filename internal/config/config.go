@@ -48,8 +48,18 @@ type WASMPluginConfig struct {
 
 type CacheConfig struct {
 	Enabled    bool          `yaml:"enabled"`
+	Backend    string        `yaml:"backend"`     // "memory" (default) or "redis"
 	TTL        time.Duration `yaml:"ttl"`
-	MaxEntries int           `yaml:"max_entries"`
+	MaxEntries int           `yaml:"max_entries"` // memory backend only
+	Redis      RedisConfig   `yaml:"redis,omitempty"`
+}
+
+// RedisConfig holds connection settings for the Redis cache backend.
+type RedisConfig struct {
+	Address   string `yaml:"address"`    // e.g. "localhost:6379"
+	Password  string `yaml:"password"`
+	DB        int    `yaml:"db"`
+	KeyPrefix string `yaml:"key_prefix"` // default "butter:"
 }
 
 type ServerConfig struct {
@@ -142,11 +152,17 @@ func applyDefaults(cfg *Config) {
 		cfg.Routing.Failover.Backoff.Max = 5 * time.Second
 	}
 	if cfg.Cache.Enabled {
+		if cfg.Cache.Backend == "" {
+			cfg.Cache.Backend = "memory"
+		}
 		if cfg.Cache.TTL == 0 {
 			cfg.Cache.TTL = 5 * time.Minute
 		}
-		if cfg.Cache.MaxEntries == 0 {
+		if cfg.Cache.Backend == "memory" && cfg.Cache.MaxEntries == 0 {
 			cfg.Cache.MaxEntries = 10000
+		}
+		if cfg.Cache.Backend == "redis" && cfg.Cache.Redis.KeyPrefix == "" {
+			cfg.Cache.Redis.KeyPrefix = "butter:"
 		}
 	}
 	if cfg.AppKeys.Header == "" {

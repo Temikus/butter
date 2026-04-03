@@ -3,6 +3,7 @@ package transport
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -68,6 +69,12 @@ func NewServer(cfg *config.ServerConfig, engine *proxy.Engine, logger *slog.Logg
 		chatHandler = s.withAppKeyTracking(chatHandler)
 	}
 	mux.Handle("POST /v1/chat/completions", chatHandler)
+	var embeddingsHandler http.Handler = http.HandlerFunc(s.handleEmbeddings)
+	if s.appKeyStore != nil {
+		embeddingsHandler = s.withAppKeyTracking(embeddingsHandler)
+	}
+	mux.Handle("POST /v1/embeddings", embeddingsHandler)
+	mux.HandleFunc("GET /v1/models", s.handleModels)
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("/native/{provider}/{path...}", s.handleNativePassthrough)
 	if s.metricsHandler != nil {
@@ -377,6 +384,68 @@ func (s *Server) writeShortCircuit(w http.ResponseWriter, pctx *plugin.RequestCo
 	if len(pctx.ShortCircuitBody) > 0 {
 		_, _ = w.Write(pctx.ShortCircuitBody)
 	}
+}
+
+func (s *Server) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, "failed to read request body")
+		return
+	}
+	defer func() { _ = r.Body.Close() }()
+
+	// Run transport pre-hooks.
+	pctx := &plugin.RequestContext{
+		Request:   r,
+		Body:      body,
+		Metadata:  make(map[string]any),
+		StartTime: time.Now(),
+	}
+	if s.chain != nil {
+		s.chain.RunPreHTTP(pctx)
+		if pctx.ShortCircuit {
+			s.writeShortCircuit(w, pctx)
+			return
+		}
+		body = pctx.Body
+	}
+
+	resp, err := s.engine.DispatchEmbeddings(r.Context(), body)
+	if err != nil {
+		s.logger.Error("embeddings dispatch failed", "error", err)
+		status := http.StatusBadGateway
+		var pe *provider.ProviderError
+		if errors.As(err, &pe) {
+			status = pe.StatusCode
+		}
+		s.writeError(w, status, err.Error())
+		return
+	}
+
+	// Run transport post-hooks.
+	if s.chain != nil {
+		s.chain.RunPostHTTP(pctx)
+	}
+
+	for k, vs := range resp.Headers {
+		switch k {
+		case "Content-Length", "Transfer-Encoding", "Content-Type":
+			continue
+		}
+		for _, v := range vs {
+			w.Header().Add(k, v)
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	_, _ = w.Write(resp.RawBody)
+}
+
+func (s *Server) handleModels(w http.ResponseWriter, _ *http.Request) {
+	result := s.engine.ListModels()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(result)
 }
 
 func (s *Server) writeError(w http.ResponseWriter, status int, msg string) {

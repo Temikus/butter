@@ -649,3 +649,142 @@ func TestFailoverNonProviderError(t *testing.T) {
 		t.Errorf("expected secondary response, got: %s", resp.RawBody)
 	}
 }
+
+// --- Embeddings Tests ---
+
+// mockEmbeddingProvider implements both Provider and EmbeddingProvider.
+type mockEmbeddingProvider struct {
+	mockProvider
+	embeddingsFn func(ctx context.Context, req *provider.EmbeddingRequest) (*provider.EmbeddingResponse, error)
+}
+
+func (m *mockEmbeddingProvider) Embeddings(ctx context.Context, req *provider.EmbeddingRequest) (*provider.EmbeddingResponse, error) {
+	if m.embeddingsFn != nil {
+		return m.embeddingsFn(ctx, req)
+	}
+	return &provider.EmbeddingResponse{
+		RawBody:    []byte(`{"object":"list","data":[{"embedding":[0.1]}]}`),
+		StatusCode: 200,
+		Headers:    http.Header{"Content-Type": []string{"application/json"}},
+	}, nil
+}
+
+func TestDispatchEmbeddings(t *testing.T) {
+	mock := &mockEmbeddingProvider{
+		mockProvider: mockProvider{name: "openrouter"},
+	}
+	engine := newTestEngine(mock)
+
+	resp, err := engine.DispatchEmbeddings(context.Background(),
+		[]byte(`{"model":"text-embedding-3-small","input":"hello"}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.StatusCode != 200 {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestDispatchEmbeddingsMissingModel(t *testing.T) {
+	mock := &mockEmbeddingProvider{
+		mockProvider: mockProvider{name: "openrouter"},
+	}
+	engine := newTestEngine(mock)
+
+	_, err := engine.DispatchEmbeddings(context.Background(),
+		[]byte(`{"input":"hello"}`))
+	if err == nil {
+		t.Fatal("expected error for missing model")
+	}
+}
+
+func TestDispatchEmbeddingsUnsupportedProvider(t *testing.T) {
+	// mockProvider does NOT implement EmbeddingProvider.
+	mock := &mockProvider{name: "openrouter"}
+	engine := newTestEngine(mock)
+
+	_, err := engine.DispatchEmbeddings(context.Background(),
+		[]byte(`{"model":"text-embedding-3-small","input":"hello"}`))
+	if err == nil {
+		t.Fatal("expected error for provider without embeddings support")
+	}
+}
+
+func TestDispatchEmbeddingsModelRoute(t *testing.T) {
+	openrouterMock := &mockEmbeddingProvider{
+		mockProvider: mockProvider{name: "openrouter"},
+		embeddingsFn: func(ctx context.Context, req *provider.EmbeddingRequest) (*provider.EmbeddingResponse, error) {
+			return &provider.EmbeddingResponse{
+				RawBody:    []byte(`{"from":"openrouter"}`),
+				StatusCode: 200,
+				Headers:    http.Header{},
+			}, nil
+		},
+	}
+	openaiMock := &mockEmbeddingProvider{
+		mockProvider: mockProvider{name: "openai"},
+		embeddingsFn: func(ctx context.Context, req *provider.EmbeddingRequest) (*provider.EmbeddingResponse, error) {
+			return &provider.EmbeddingResponse{
+				RawBody:    []byte(`{"from":"openai"}`),
+				StatusCode: 200,
+				Headers:    http.Header{},
+			}, nil
+		},
+	}
+	engine := newTestEngine(openrouterMock, openaiMock)
+
+	// gpt-4o routes to openai per config in newTestEngine.
+	resp, err := engine.DispatchEmbeddings(context.Background(),
+		[]byte(`{"model":"gpt-4o","input":"hello"}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if string(resp.RawBody) != `{"from":"openai"}` {
+		t.Errorf("expected openai response, got: %s", resp.RawBody)
+	}
+}
+
+// --- ListModels Tests ---
+
+func TestListModels(t *testing.T) {
+	engine := newTestEngine(&mockProvider{name: "openrouter"}, &mockProvider{name: "openai"})
+
+	result := engine.ListModels()
+	if result.Object != "list" {
+		t.Errorf("expected object 'list', got %q", result.Object)
+	}
+	// newTestEngine configures one model route: gpt-4o -> openai
+	if len(result.Data) != 1 {
+		t.Fatalf("expected 1 model, got %d", len(result.Data))
+	}
+	if result.Data[0].ID != "gpt-4o" {
+		t.Errorf("expected model id 'gpt-4o', got %q", result.Data[0].ID)
+	}
+	if result.Data[0].OwnedBy != "openai" {
+		t.Errorf("expected owned_by 'openai', got %q", result.Data[0].OwnedBy)
+	}
+}
+
+func TestListModelsNoRoutes(t *testing.T) {
+	reg := provider.NewRegistry()
+	reg.Register(&mockProvider{name: "test"})
+	cfg := &config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"test": {Keys: []config.KeyConfig{{Key: "sk-test", Weight: 1}}},
+		},
+		Routing: config.RoutingConfig{
+			DefaultProvider: "test",
+			Models:          map[string]config.ModelRoute{},
+		},
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	engine := NewEngine(reg, cfg, logger, nil)
+
+	result := engine.ListModels()
+	if len(result.Data) != 0 {
+		t.Errorf("expected 0 models, got %d", len(result.Data))
+	}
+	if result.Data == nil {
+		t.Error("expected non-nil empty slice for Data")
+	}
+}

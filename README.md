@@ -15,7 +15,7 @@ A blazingly fast AI proxy gateway written in Go. Butter sits between your applic
 Inspired by [Bifrost](https://github.com/maximhq/bifrost), but with a focus on simplicity, extensibility via WASM plugins, and raw performance.
 
 ```
-Your App ──▶ Butter ──▶ OpenAI / Anthropic / Groq / Mistral / ...
+Your App ──▶ Butter ──▶ OpenAI / Anthropic / Gemini / Groq / Mistral / ...
                 │
                 ├── Unified OpenAI-compatible API
                 ├── Automatic failover & retries
@@ -25,9 +25,9 @@ Your App ──▶ Butter ──▶ OpenAI / Anthropic / Groq / Mistral / ...
 
 ## Features
 
-- OpenAI-compatible `/v1/chat/completions` endpoint — streaming (SSE) and non-streaming
-- **8 providers**: OpenAI, Anthropic, OpenRouter, Groq, Mistral, Together.ai, Fireworks, Perplexity — shared `openaicompat` base for any OpenAI-compatible API
-- Anthropic format translation (OpenAI requests automatically converted to/from Anthropic's native format)
+- OpenAI-compatible API — `/v1/chat/completions` (streaming & non-streaming), `/v1/embeddings`, `/v1/models`
+- **9 providers**: OpenAI, Anthropic, Gemini, OpenRouter, Groq, Mistral, Together.ai, Fireworks, Perplexity — shared `openaicompat` base for any OpenAI-compatible API
+- Anthropic & Gemini format translation (OpenAI requests automatically converted to/from native formats)
 - Multi-provider routing with model-specific provider lists and priority/round-robin strategies
 - Weighted random key selection with per-key model allowlists
 - Multi-provider failover with configurable retry-on status codes and exponential backoff
@@ -39,7 +39,7 @@ Your App ──▶ Butter ──▶ OpenAI / Anthropic / Groq / Mistral / ...
 - Built-in request logging plugin (structured slog, provider/model/status/duration)
 - Built-in Prometheus metrics plugin (OTel SDK instruments, `/metrics` endpoint)
 - Built-in distributed tracing plugin (OTel SDK, OTLP HTTP export)
-- Response caching (in-memory LRU with TTL; SHA256 cache key; temperature=0 non-streaming only)
+- Response caching (in-memory LRU or Redis backend; SHA256 cache key; temperature=0 non-streaming only)
 - Config hot-reload (mtime polling, atomic engine swap — no restart required)
 - **Application keys** for usage tracking and attribution — vend `btr_` tokens, track per-key request/token counts, optional enforcement via `require_key`
 - Raw HTTP passthrough for provider-native endpoints (`/native/{provider}/*`)
@@ -48,15 +48,14 @@ Your App ──▶ Butter ──▶ OpenAI / Anthropic / Groq / Mistral / ...
 - Multi-stage Docker image (distroless base)
 
 **Coming soon:**
-- More providers (Azure, Bedrock, Gemini, and more to match Bifrost coverage)
-- Redis response cache backend
+- More providers (Azure OpenAI, AWS Bedrock, Vertex AI)
 
 ## Quick Start
 
 ### Prerequisites
 
 - Go 1.25+ (uses enhanced `ServeMux` pattern routing)
-- An API key for a supported provider ([OpenAI](https://platform.openai.com/), [Anthropic](https://console.anthropic.com/), [OpenRouter](https://openrouter.ai/), [Groq](https://console.groq.com/), [Mistral](https://console.mistral.ai/), [Together.ai](https://api.together.xyz/), [Fireworks](https://fireworks.ai/), [Perplexity](https://www.perplexity.ai/), or any OpenAI-compatible API)
+- An API key for a supported provider ([OpenAI](https://platform.openai.com/), [Anthropic](https://console.anthropic.com/), [Google Gemini](https://ai.google.dev/), [OpenRouter](https://openrouter.ai/), [Groq](https://console.groq.com/), [Mistral](https://console.mistral.ai/), [Together.ai](https://api.together.xyz/), [Fireworks](https://fireworks.ai/), [Perplexity](https://www.perplexity.ai/), or any OpenAI-compatible API)
 
 ### 1. Install
 
@@ -260,7 +259,7 @@ butter/
 │   ├── transport/               HTTP server and handlers
 │   ├── proxy/                   Core dispatch engine (routing, failover, key selection)
 │   ├── appkey/                  Application key store (usage tracking, token counting)
-│   ├── cache/                   Cache interface + in-memory LRU with TTL
+│   ├── cache/                   Cache interface + in-memory LRU and Redis backends
 │   ├── plugin/                  Plugin system (interfaces, chain, manager)
 │   │   ├── wasm/                WASM plugin host (Extism/wazero)
 │   │   └── builtin/
@@ -274,6 +273,7 @@ butter/
 │       ├── openaicompat/        Reusable base for OpenAI-compatible APIs
 │       ├── openai/              OpenAI provider
 │       ├── anthropic/           Anthropic provider (format translation)
+│       ├── gemini/              Google Gemini provider (format translation)
 │       ├── openrouter/          OpenRouter provider
 │       ├── groq/                Groq provider
 │       ├── mistral/             Mistral provider
