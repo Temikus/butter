@@ -63,7 +63,7 @@ Client → transport.Server (HTTP) → proxy.Engine (routing/dispatch) → provi
 - **Phase 2** (Multi-Provider + Routing): complete
 - **Phase 3** (Plugin System): complete — Go plugin interfaces + chain + manager + built-in plugins (ratelimit, requestlog, metrics, tracing) + WASM host (Extism/wazero, JSON ABI, plugin SDK, example plugin)
 - **Phase 4** (Caching + Observability): complete — in-memory LRU cache, OTel tracing (OTLP HTTP), Prometheus metrics, slog
-- **Phase 5** (Production): complete — graceful shutdown, healthz, Docker (distroless), 22 integration tests, config hot-reload, benchmarks
+- **Phase 5** (Production): complete — graceful shutdown, healthz, Docker (distroless), 38 integration tests, config hot-reload, benchmarks
 - **Phase 6** (Provider Expansion): complete — Groq, Mistral, Together.ai, Fireworks, Perplexity (all via openaicompat)
 - **Phase 7** (Application Keys): complete — `btr_` token vending, per-key usage tracking (requests + prompt/completion tokens), optional `require_key` enforcement, management endpoints, 6 integration tests
 - **Phase 8** (API Completeness + Gemini + Redis): complete — `/v1/embeddings` endpoint (optional `EmbeddingProvider` interface, openaicompat support), `/v1/models` endpoint (config-derived model list), Redis cache backend (`go-redis/v9`, key-prefixed, configurable), Google Gemini provider (standalone OpenAI↔Gemini translation, streaming via SSE, `?key=` auth)

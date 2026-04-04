@@ -232,13 +232,17 @@ just build              # Build binary (with commit hash)
 just build-release      # Build with full version info from git
 just serve              # Run with config (auto-loads API keys from ~/.openai/api-key etc.)
 just test               # Run all tests with race detector
+just test-integration   # Run integration tests (mock servers, no real API calls)
 just lint               # Run golangci-lint
-just check              # Run vet + lint + test
+just check              # Run vet + lint + test + integration tests
 just bench              # Run benchmarks with allocation reporting
 just release-snapshot   # Test GoReleaser locally (no publish)
+just docker-build       # Build multi-stage Docker image
+just docker-run         # Run Docker container with config
 just build-example-wasm # Compile example WASM plugin (requires TinyGo)
 just build-injection-guard # Compile prompt injection guard plugin (requires TinyGo)
 just build-wasm         # Build all WASM plugins
+just clean              # Remove built binaries and compiled WASM plugins
 ```
 
 Or use Go directly:
