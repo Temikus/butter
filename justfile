@@ -49,17 +49,33 @@ serve config="config.example.yaml":
 
     go run ./cmd/butter/ -config {{config}}
 
-# Run all tests (matches CI)
-test:
-    go test ./... -v -race -count=1
-
-# Run integration tests (spins up mock HTTP servers, no real API calls)
-test-integration:
-    go test ./tests/integration/... -v -race -count=1 -tags integration
-
-# Run a single test: just test-one ./internal/proxy/ TestDispatch
-test-one pkg name:
-    go test {{pkg}} -run {{name}} -v -race -count=1
+# Run all tests, or a subcommand: integration, one <pkg> <name>
+#   just test                                  — all tests (unit + integration)
+#   just test integration                      — integration tests only
+#   just test one ./internal/proxy/ TestDispatch — single test
+test *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    set -- {{args}}
+    subcommand="${1:-}"
+    case "$subcommand" in
+      "")
+        go test ./... -v -race -count=1
+        go test ./tests/integration/... -v -race -count=1 -tags integration
+        ;;
+      integration)
+        go test ./tests/integration/... -v -race -count=1 -tags integration
+        ;;
+      one)
+        pkg="${2:?Usage: just test one <pkg> <name>}"
+        name="${3:?Usage: just test one <pkg> <name>}"
+        go test "$pkg" -run "$name" -v -race -count=1
+        ;;
+      *)
+        echo "Unknown subcommand: $subcommand" >&2
+        exit 1
+        ;;
+    esac
 
 # Lint
 lint:
@@ -69,8 +85,8 @@ lint:
 vet:
     go vet ./...
 
-# Run all checks (vet + lint + unit tests + integration tests)
-check: vet lint test test-integration
+# Run all checks (vet + lint + all tests)
+check: vet lint test
 
 # Build Docker image: just docker-build [tag]
 docker-build tag="latest":
@@ -110,3 +126,22 @@ clean:
     rm -rf pkg/
     rm -f plugins/example-wasm/example-wasm.wasm
     rm -f plugins/prompt-injection-guard/prompt-injection-guard.wasm
+
+# Tag and push a release: just release [patch|minor|major]
+release bump="patch":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    latest=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+    major=$(echo "$latest" | sed 's/^v//' | cut -d. -f1)
+    minor=$(echo "$latest" | sed 's/^v//' | cut -d. -f2)
+    patch=$(echo "$latest" | sed 's/^v//' | cut -d. -f3)
+    case "{{bump}}" in
+      major) major=$((major + 1)); minor=0; patch=0 ;;
+      minor) minor=$((minor + 1)); patch=0 ;;
+      patch) patch=$((patch + 1)) ;;
+      *) echo "Usage: just release [patch|minor|major]" >&2; exit 1 ;;
+    esac
+    new_tag="v${major}.${minor}.${patch}"
+    echo "Tagging $new_tag (was $latest)"
+    git tag -a "$new_tag" -m "Release $new_tag"
+    git push origin "$new_tag"

@@ -1,6 +1,7 @@
 package transport_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -8,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -494,6 +496,137 @@ func TestNativePassthroughRelaysUpstreamHeaders(t *testing.T) {
 
 	if v := resp.Header.Get("X-Custom-Provider"); v != "test-value" {
 		t.Errorf("expected X-Custom-Provider=test-value, got %q", v)
+	}
+}
+
+// capturingHandler is an slog.Handler that records log records for inspection.
+type capturingHandler struct {
+	mu      sync.Mutex
+	records []slog.Record
+	level   slog.Level
+}
+
+func (h *capturingHandler) Enabled(_ context.Context, level slog.Level) bool {
+	return level >= h.level
+}
+
+func (h *capturingHandler) Handle(_ context.Context, r slog.Record) error {
+	h.mu.Lock()
+	h.records = append(h.records, r)
+	h.mu.Unlock()
+	return nil
+}
+
+func (h *capturingHandler) WithAttrs(_ []slog.Attr) slog.Handler { return h }
+func (h *capturingHandler) WithGroup(_ string) slog.Handler      { return h }
+
+func TestHealthzLogsAtDebug(t *testing.T) {
+	mockProv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer mockProv.Close()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Address:      ":0",
+			ReadTimeout:  5 * time.Second,
+			WriteTimeout: 30 * time.Second,
+		},
+		Providers: map[string]config.ProviderConfig{
+			"openrouter": {
+				BaseURL: mockProv.URL,
+				Keys:    []config.KeyConfig{{Key: "test-key", Weight: 1}},
+			},
+		},
+		Routing: config.RoutingConfig{DefaultProvider: "openrouter"},
+	}
+
+	handler := &capturingHandler{level: slog.LevelDebug}
+	logger := slog.New(handler)
+	registry := provider.NewRegistry()
+	registry.Register(openrouter.New(mockProv.URL, nil))
+	engine := proxy.NewEngine(registry, cfg, logger, nil)
+	srv := transport.NewServer(&cfg.Server, engine, logger, nil)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/healthz")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	handler.mu.Lock()
+	records := handler.records
+	handler.mu.Unlock()
+
+	var found *slog.Record
+	for i := range records {
+		if records[i].Message == "request completed" {
+			found = &records[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("expected 'request completed' log record, got none")
+	}
+	if found.Level != slog.LevelDebug {
+		t.Errorf("expected Debug level for /healthz log, got %v", found.Level)
+	}
+}
+
+func TestNonHealthzLogsAtInfo(t *testing.T) {
+	mockProv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"id":"ok","choices":[{"message":{"role":"assistant","content":"hi"},"finish_reason":"stop","index":0}]}`)
+	}))
+	defer mockProv.Close()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Address:      ":0",
+			ReadTimeout:  5 * time.Second,
+			WriteTimeout: 30 * time.Second,
+		},
+		Providers: map[string]config.ProviderConfig{
+			"openrouter": {
+				BaseURL: mockProv.URL,
+				Keys:    []config.KeyConfig{{Key: "test-key", Weight: 1}},
+			},
+		},
+		Routing: config.RoutingConfig{DefaultProvider: "openrouter"},
+	}
+
+	handler := &capturingHandler{level: slog.LevelDebug}
+	logger := slog.New(handler)
+	registry := provider.NewRegistry()
+	registry.Register(openrouter.New(mockProv.URL, nil))
+	engine := proxy.NewEngine(registry, cfg, logger, nil)
+	srv := transport.NewServer(&cfg.Server, engine, logger, nil)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	reqBody := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`
+	resp, err := http.Post(ts.URL+"/v1/chat/completions", "application/json", strings.NewReader(reqBody))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	handler.mu.Lock()
+	records := handler.records
+	handler.mu.Unlock()
+
+	var found *slog.Record
+	for i := range records {
+		if records[i].Message == "request completed" {
+			found = &records[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("expected 'request completed' log record, got none")
+	}
+	if found.Level != slog.LevelInfo {
+		t.Errorf("expected Info level for /v1/chat/completions log, got %v", found.Level)
 	}
 }
 

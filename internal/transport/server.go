@@ -115,7 +115,11 @@ func (s *Server) withMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		next.ServeHTTP(w, r)
-		s.logger.Info("request completed",
+		level := slog.LevelInfo
+		if r.URL.Path == "/healthz" {
+			level = slog.LevelDebug
+		}
+		s.logger.Log(r.Context(), level, "request completed",
 			"method", r.Method,
 			"path", r.URL.Path,
 			"duration", time.Since(start),
