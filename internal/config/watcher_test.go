@@ -67,9 +67,14 @@ func TestWatcherCallsOnChangeWhenFileModified(t *testing.T) {
 	// Let the watcher seed its initial mtime.
 	time.Sleep(30 * time.Millisecond)
 
-	// Overwrite the file with different content (ensures new mtime).
+	// Overwrite the file with different content and explicitly bump mtime
+	// to avoid false negatives on filesystems with 1-second mtime granularity.
 	if err := os.WriteFile(path, []byte(minimalConfigAlt), 0644); err != nil {
 		t.Fatalf("write config: %v", err)
+	}
+	future := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(path, future, future); err != nil {
+		t.Fatalf("chtimes: %v", err)
 	}
 
 	select {
