@@ -90,6 +90,24 @@ func TestStoreRecordRequest(t *testing.T) {
 	}
 }
 
+func TestStoreRecordRequestSetsLastAccessed(t *testing.T) {
+	s := NewStore()
+	s.Provision("btr_testkey00000000000", "svc")
+
+	// Before any request, LastAccessedAt should be nil.
+	snap := s.Lookup("btr_testkey00000000000").Snapshot()
+	if snap.LastAccessedAt != nil {
+		t.Error("expected nil last_accessed_at before any request")
+	}
+
+	s.RecordRequest("btr_testkey00000000000", "gpt-4o", false, 10, 5)
+
+	snap = s.Lookup("btr_testkey00000000000").Snapshot()
+	if snap.LastAccessedAt == nil {
+		t.Fatal("expected last_accessed_at to be set after RecordRequest")
+	}
+}
+
 func TestStoreRecordRequestUnknownKey(t *testing.T) {
 	s := NewStore()
 	// Should not panic on unknown key.

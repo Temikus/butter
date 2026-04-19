@@ -141,14 +141,40 @@ func main() {
 
 	// Build server options.
 	var serverOpts []transport.Option
+	var appKeyPersister *appkey.Persister
 	if metricsPlugin != nil {
 		serverOpts = append(serverOpts, transport.WithMetricsHandler(metricsPlugin.Handler()))
 	}
 	if cfg.AppKeys.Enabled {
 		store := appkey.NewStore()
+
+		// Provision config-defined keys first so their labels are in the store
+		// before bbolt loads. Restore merges persisted counters into existing
+		// records while preserving config labels (config is authoritative for
+		// labels, bbolt is authoritative for counters).
 		for _, entry := range cfg.AppKeys.Keys {
 			store.Provision(entry.Key, entry.Label)
 		}
+
+		if cfg.AppKeys.Persistence.Enabled {
+			var err error
+			appKeyPersister, err = appkey.NewPersister(
+				cfg.AppKeys.Persistence.Path,
+				store,
+				cfg.AppKeys.Persistence.FlushInterval,
+				logger,
+			)
+			if err != nil {
+				logger.Error("failed to open app key database", "error", err)
+				os.Exit(1)
+			}
+			appKeyPersister.Start()
+			logger.Info("app key persistence enabled",
+				"path", cfg.AppKeys.Persistence.Path,
+				"flush_interval", cfg.AppKeys.Persistence.FlushInterval,
+			)
+		}
+
 		serverOpts = append(serverOpts, transport.WithAppKeyStore(store, cfg.AppKeys.Header, cfg.AppKeys.RequireKey))
 		logger.Info("app key tracking enabled",
 			"require_key", cfg.AppKeys.RequireKey,
@@ -220,6 +246,11 @@ func main() {
 
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error("shutdown error", "error", err)
+	}
+
+	// Final flush and close of app key persistence (after HTTP drains, before plugins).
+	if err := appKeyPersister.Close(); err != nil {
+		logger.Error("app key persistence close error", "error", err)
 	}
 
 	pluginMgr.CloseAll()

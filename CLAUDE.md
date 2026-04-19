@@ -39,7 +39,7 @@ Client → transport.Server (HTTP) → proxy.Engine (routing/dispatch) → provi
 - `internal/provider/openai/`, `openrouter/`, `groq/`, `mistral/`, `together/`, `fireworks/`, `perplexity/` — Thin wrappers over `openaicompat` with provider-specific base URLs.
 - `internal/provider/anthropic/` — Standalone implementation with OpenAI↔Anthropic request/response translation.
 - `internal/provider/gemini/` — Standalone implementation with OpenAI↔Gemini request/response translation. Model-in-URL routing, `?key=` auth, streaming via `streamGenerateContent?alt=sse`.
-- `internal/appkey/` — Application key store. Thread-safe in-memory map of `btr_`-prefixed tokens → per-key usage counters (requests, prompt tokens, completion tokens). Async token counting via goroutine. Zero overhead when disabled (no middleware, no routes registered).
+- `internal/appkey/` — Application key store. Thread-safe in-memory map of `btr_`-prefixed tokens → per-key usage counters (requests, prompt tokens, completion tokens, last_accessed_at). Async token counting via goroutine. Optional bbolt-backed persistence (`persist.go`): write-behind flush on interval + shutdown, immediate write on vend; hot path untouched. Zero overhead when disabled (no middleware, no routes registered).
 - `internal/cache/` — Response cache interface with in-memory LRU and Redis backends. Cache key derived from SHA256(provider + model + messages + params). Only caches non-streaming requests with temperature=0. Redis backend uses `go-redis/v9` with key prefixing and native TTL.
 - `internal/plugin/` — Plugin interfaces (`TransportPlugin`, `LLMPlugin`, `ObservabilityPlugin`), ordered `Chain`, and `Manager`. Built-in plugins: `ratelimit/`, `requestlog/`, `metrics/` (OTel SDK, Prometheus `/metrics`), `tracing/` (OTel spans, OTLP HTTP export).
 - `internal/plugin/wasm/` — WASM plugin host built on Extism/wazero (pure Go, BSD-3/Apache-2.0). Uses `CompiledPlugin` (compile-once at startup) + per-call `Instance()` for safe concurrent use. Missing hooks silently skipped. `StreamChunk` is pass-through (per-chunk instantiation cost is prohibitive).
@@ -52,7 +52,7 @@ Client → transport.Server (HTTP) → proxy.Engine (routing/dispatch) → provi
 ## Design Constraints
 
 - stdlib-only HTTP (no frameworks) — performance target is <50μs proxy overhead
-- Direct dependency: `gopkg.in/yaml.v3`; metrics/tracing plugins add OTel SDK + Prometheus; WASM host adds Extism/wazero; Redis cache adds `go-redis/v9`
+- Direct dependency: `gopkg.in/yaml.v3`; metrics/tracing plugins add OTel SDK + Prometheus; WASM host adds Extism/wazero; Redis cache adds `go-redis/v9`; bbolt persistence adds `go.etcd.io/bbolt`
 - Streaming uses direct byte relay (no JSON re-serialization)
 - Go 1.22+ required for pattern-based ServeMux routing
 - No HashiCorp licensed dependencies; all deps are Apache-2.0, MIT, BSD, or MPL-2.0
@@ -65,6 +65,6 @@ Client → transport.Server (HTTP) → proxy.Engine (routing/dispatch) → provi
 - **Phase 4** (Caching + Observability): complete — in-memory LRU cache, OTel tracing (OTLP HTTP), Prometheus metrics, slog
 - **Phase 5** (Production): complete — graceful shutdown, healthz, Docker (distroless), 38 integration tests, config hot-reload, benchmarks
 - **Phase 6** (Provider Expansion): complete — Groq, Mistral, Together.ai, Fireworks, Perplexity (all via openaicompat)
-- **Phase 7** (Application Keys): complete — `btr_` token vending, per-key usage tracking (requests + prompt/completion tokens), optional `require_key` enforcement, management endpoints, 6 integration tests
+- **Phase 7** (Application Keys): complete — `btr_` token vending, per-key usage tracking (requests + prompt/completion tokens + last_accessed_at), optional `require_key` enforcement, management endpoints, 6 integration tests; bbolt write-behind persistence (opt-in, zero hot-path overhead)
 - **Phase 8** (API Completeness + Gemini + Redis): complete — `/v1/embeddings` endpoint (optional `EmbeddingProvider` interface, openaicompat support), `/v1/models` endpoint (config-derived model list), Redis cache backend (`go-redis/v9`, key-prefixed, configurable), Google Gemini provider (standalone OpenAI↔Gemini translation, streaming via SSE, `?key=` auth)
 - **Next**: Azure OpenAI, Bedrock, Vertex AI, or semantic cache plugin

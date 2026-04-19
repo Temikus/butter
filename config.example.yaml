@@ -132,3 +132,7 @@ plugins:
 #   keys:                        # Pre-provisioned keys (optional)
 #     - key: "${MYAPP_BUTTER_KEY}"
 #       label: my-chatbot-prod
+#   persistence:                 # Optional — bbolt durable storage for keys & counters
+#     enabled: false             # Opt-in; keys/counters survive restarts when true
+#     path: butter-appkeys.db   # bbolt database file path
+#     flush_interval: 30s       # How often counters are flushed to disk (write-behind)

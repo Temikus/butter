@@ -22,6 +22,7 @@ type UsageRecord struct {
 	TotalRequests     atomic.Int64
 	StreamRequests    atomic.Int64
 	NonStreamRequests atomic.Int64
+	LastAccessedAt    atomic.Int64 // UnixNano; 0 means never accessed
 
 	mu         sync.RWMutex
 	modelUsage map[string]*ModelUsage
@@ -48,11 +49,20 @@ func (u *UsageRecord) getOrCreateModel(model string) *ModelUsage {
 type Store struct {
 	mu      sync.RWMutex
 	records map[string]*UsageRecord
+	onVend  func(*UsageSnapshot) // optional callback fired after Vend
 }
 
 // NewStore returns an empty Store.
 func NewStore() *Store {
 	return &Store{records: make(map[string]*UsageRecord)}
+}
+
+// SetOnVend registers a callback invoked synchronously after a key is vended.
+// Intended for persistence layers to immediately write newly created keys.
+// Must be called during initialization, before the server starts accepting
+// traffic — the write to s.onVend is not protected by a lock.
+func (s *Store) SetOnVend(fn func(*UsageSnapshot)) {
+	s.onVend = fn
 }
 
 // Provision registers a pre-configured key. Idempotent — calling with the
@@ -71,6 +81,8 @@ func (s *Store) Provision(key, label string) {
 }
 
 // Vend generates a new key, provisions it in the store, and returns the record.
+// If an onVend callback is registered, it is called synchronously after the
+// record is created (used by the persistence layer to write immediately).
 func (s *Store) Vend(label string) (*UsageRecord, error) {
 	key, err := Generate()
 	if err != nil {
@@ -84,7 +96,12 @@ func (s *Store) Vend(label string) (*UsageRecord, error) {
 		modelUsage: make(map[string]*ModelUsage),
 	}
 	s.records[key] = record
+	onVend := s.onVend
 	s.mu.Unlock()
+
+	if onVend != nil {
+		onVend(record.Snapshot())
+	}
 	return record, nil
 }
 
@@ -119,6 +136,7 @@ func (s *Store) RecordRequest(key, model string, stream bool, promptTokens, comp
 		return
 	}
 	rec.TotalRequests.Add(1)
+	rec.LastAccessedAt.Store(time.Now().UnixNano())
 	if stream {
 		rec.StreamRequests.Add(1)
 	} else {
@@ -141,6 +159,7 @@ type UsageSnapshot struct {
 	Key               string                    `json:"key"`
 	Label             string                    `json:"label"`
 	CreatedAt         time.Time                 `json:"created_at"`
+	LastAccessedAt    *time.Time                `json:"last_accessed_at,omitempty"`
 	TotalRequests     int64                     `json:"total_requests"`
 	StreamRequests    int64                     `json:"stream_requests"`
 	NonStreamRequests int64                     `json:"non_stream_requests"`
@@ -152,6 +171,59 @@ type ModelSnapshot struct {
 	Requests         int64 `json:"requests"`
 	PromptTokens     int64 `json:"prompt_tokens,omitempty"`
 	CompletionTokens int64 `json:"completion_tokens,omitempty"`
+}
+
+// Restore reconstructs a UsageRecord from a persisted snapshot, or merges
+// persisted counters into an existing record. Must be called before the
+// server starts accepting requests.
+//
+// If the key already exists (e.g. provisioned from config), Restore merges
+// the persisted counters and creation time into the existing record while
+// preserving the existing label — config is authoritative for labels, bbolt
+// is authoritative for counters.
+func (s *Store) Restore(snap *UsageSnapshot) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if rec, exists := s.records[snap.Key]; exists {
+		// Merge persisted counters; keep existing label.
+		rec.CreatedAt = snap.CreatedAt
+		if snap.LastAccessedAt != nil {
+			rec.LastAccessedAt.Store(snap.LastAccessedAt.UnixNano())
+		}
+		rec.TotalRequests.Store(snap.TotalRequests)
+		rec.StreamRequests.Store(snap.StreamRequests)
+		rec.NonStreamRequests.Store(snap.NonStreamRequests)
+		rec.mu.Lock()
+		for model, ms := range snap.Models {
+			mu := &ModelUsage{}
+			mu.Requests.Store(ms.Requests)
+			mu.PromptTokens.Store(ms.PromptTokens)
+			mu.CompletionTokens.Store(ms.CompletionTokens)
+			rec.modelUsage[model] = mu
+		}
+		rec.mu.Unlock()
+		return
+	}
+	rec := &UsageRecord{
+		Key:        snap.Key,
+		Label:      snap.Label,
+		CreatedAt:  snap.CreatedAt,
+		modelUsage: make(map[string]*ModelUsage),
+	}
+	if snap.LastAccessedAt != nil {
+		rec.LastAccessedAt.Store(snap.LastAccessedAt.UnixNano())
+	}
+	rec.TotalRequests.Store(snap.TotalRequests)
+	rec.StreamRequests.Store(snap.StreamRequests)
+	rec.NonStreamRequests.Store(snap.NonStreamRequests)
+	for model, ms := range snap.Models {
+		mu := &ModelUsage{}
+		mu.Requests.Store(ms.Requests)
+		mu.PromptTokens.Store(ms.PromptTokens)
+		mu.CompletionTokens.Store(ms.CompletionTokens)
+		rec.modelUsage[model] = mu
+	}
+	s.records[snap.Key] = rec
 }
 
 // Snapshot returns a consistent point-in-time view of the record.
@@ -166,7 +238,7 @@ func (u *UsageRecord) Snapshot() *UsageSnapshot {
 		}
 	}
 	u.mu.RUnlock()
-	return &UsageSnapshot{
+	snap := &UsageSnapshot{
 		Key:               u.Key,
 		Label:             u.Label,
 		CreatedAt:         u.CreatedAt,
@@ -175,4 +247,9 @@ func (u *UsageRecord) Snapshot() *UsageSnapshot {
 		NonStreamRequests: u.NonStreamRequests.Load(),
 		Models:            models,
 	}
+	if ns := u.LastAccessedAt.Load(); ns != 0 {
+		t := time.Unix(0, ns)
+		snap.LastAccessedAt = &t
+	}
+	return snap
 }

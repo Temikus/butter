@@ -23,10 +23,21 @@ type Config struct {
 // AppKeysConfig controls the optional application-key tracking feature.
 // When Enabled is false (default) there is zero runtime overhead.
 type AppKeysConfig struct {
-	Enabled    bool          `yaml:"enabled"`
-	RequireKey bool          `yaml:"require_key"`
-	Header     string        `yaml:"header"`
-	Keys       []AppKeyEntry `yaml:"keys,omitempty"`
+	Enabled     bool                `yaml:"enabled"`
+	RequireKey  bool                `yaml:"require_key"`
+	Header      string              `yaml:"header"`
+	Keys        []AppKeyEntry       `yaml:"keys,omitempty"`
+	Persistence AppKeyPersistence   `yaml:"persistence,omitempty"`
+}
+
+// AppKeyPersistence configures optional bbolt-backed durable storage for
+// application keys and their usage counters. When enabled, keys and counters
+// survive process restarts. The hot path is unaffected — all request-time
+// operations use in-memory atomics; bbolt is write-behind only.
+type AppKeyPersistence struct {
+	Enabled       bool          `yaml:"enabled"`
+	Path          string        `yaml:"path"`           // bbolt file path, default "butter-appkeys.db"
+	FlushInterval time.Duration `yaml:"flush_interval"` // how often counters are flushed to disk, default 30s
 }
 
 // AppKeyEntry represents a pre-provisioned application key in config.
@@ -167,6 +178,14 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.AppKeys.Header == "" {
 		cfg.AppKeys.Header = "X-Butter-App-Key"
+	}
+	if cfg.AppKeys.Persistence.Enabled {
+		if cfg.AppKeys.Persistence.Path == "" {
+			cfg.AppKeys.Persistence.Path = "butter-appkeys.db"
+		}
+		if cfg.AppKeys.Persistence.FlushInterval == 0 {
+			cfg.AppKeys.Persistence.FlushInterval = 30 * time.Second
+		}
 	}
 	for name, p := range cfg.Providers {
 		for i := range p.Keys {
