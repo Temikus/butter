@@ -499,6 +499,114 @@ func TestNativePassthroughRelaysUpstreamHeaders(t *testing.T) {
 	}
 }
 
+func TestNativePassthroughStreamingSSE(t *testing.T) {
+	mockProvider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "no flusher", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.WriteHeader(http.StatusOK)
+
+		events := []string{
+			"data: {\"type\":\"chunk\",\"index\":1}\n\n",
+			"data: {\"type\":\"chunk\",\"index\":2}\n\n",
+			"data: {\"type\":\"chunk\",\"index\":3}\n\n",
+		}
+		for _, event := range events {
+			_, _ = fmt.Fprint(w, event)
+			flusher.Flush()
+		}
+	}))
+	defer mockProvider.Close()
+
+	ts := setupTestServer(t, mockProvider.URL)
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/native/openrouter/v1/messages", "application/json",
+		strings.NewReader(`{"model":"test","stream":true}`))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+	}
+
+	if ct := resp.Header.Get("Content-Type"); ct != "text/event-stream" {
+		t.Errorf("expected Content-Type text/event-stream, got %q", ct)
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+	full := string(body)
+	for i := 1; i <= 3; i++ {
+		expected := fmt.Sprintf(`"index":%d`, i)
+		if !strings.Contains(full, expected) {
+			t.Errorf("missing chunk with index %d in response: %s", i, full)
+		}
+	}
+}
+
+func TestNativePassthroughNonStreamingUnchanged(t *testing.T) {
+	mockProvider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"result":"ok","data":[1,2,3]}`)
+	}))
+	defer mockProvider.Close()
+
+	ts := setupTestServer(t, mockProvider.URL)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/native/openrouter/some/endpoint")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+	expected := `{"result":"ok","data":[1,2,3]}`
+	if string(body) != expected {
+		t.Errorf("expected %q, got %q", expected, body)
+	}
+}
+
+func TestNativePassthroughSSEContentTypeWithCharset(t *testing.T) {
+	mockProvider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		flusher := w.(http.Flusher)
+		w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprint(w, "data: {\"msg\":\"hello\"}\n\n")
+		flusher.Flush()
+	}))
+	defer mockProvider.Close()
+
+	ts := setupTestServer(t, mockProvider.URL)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/native/openrouter/stream-endpoint")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "hello") {
+		t.Errorf("expected response to contain 'hello', got: %s", body)
+	}
+}
+
 // capturingHandler is an slog.Handler that records log records for inspection.
 type capturingHandler struct {
 	mu      sync.Mutex

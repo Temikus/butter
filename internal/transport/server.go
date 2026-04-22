@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/temikus/butter/internal/appkey"
@@ -302,6 +303,21 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request, body []byt
 	}
 }
 
+// flushWriter wraps an io.Writer and http.Flusher, calling Flush after every
+// Write. Used for streaming passthrough to relay SSE chunks immediately.
+type flushWriter struct {
+	w       io.Writer
+	flusher http.Flusher
+}
+
+func (fw *flushWriter) Write(p []byte) (int, error) {
+	n, err := fw.w.Write(p)
+	if n > 0 {
+		fw.flusher.Flush()
+	}
+	return n, err
+}
+
 func (s *Server) handleNativePassthrough(w http.ResponseWriter, r *http.Request) {
 	providerName := r.PathValue("provider")
 	upstreamPath := "/" + r.PathValue("path")
@@ -339,7 +355,8 @@ func (s *Server) handleNativePassthrough(w http.ResponseWriter, r *http.Request)
 		s.chain.RunPostHTTP(pctx)
 	}
 
-	s.emitTrace(pctx, r, resp.StatusCode, false, nil)
+	streaming := isSSEResponse(resp)
+	s.emitTrace(pctx, r, resp.StatusCode, streaming, nil)
 
 	// Relay upstream response headers.
 	for k, vs := range resp.Header {
@@ -348,7 +365,20 @@ func (s *Server) handleNativePassthrough(w http.ResponseWriter, r *http.Request)
 		}
 	}
 	w.WriteHeader(resp.StatusCode)
-	_, _ = io.Copy(w, resp.Body)
+
+	// For SSE streaming responses, flush each chunk immediately so the client
+	// receives events in real time instead of buffering until EOF.
+	if streaming {
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			s.logger.Warn("streaming passthrough: ResponseWriter does not support Flush")
+			_, _ = io.Copy(w, resp.Body)
+			return
+		}
+		_, _ = io.Copy(&flushWriter{w: w, flusher: flusher}, resp.Body)
+	} else {
+		_, _ = io.Copy(w, resp.Body)
+	}
 }
 
 // emitTrace sends a RequestTrace to observability plugins via the chain.
@@ -463,5 +493,11 @@ func (s *Server) writeError(w http.ResponseWriter, status int, msg string) {
 func isStreamRequest(body []byte) bool {
 	return bytes.Contains(body, []byte(`"stream":true`)) ||
 		bytes.Contains(body, []byte(`"stream": true`))
+}
+
+// isSSEResponse checks if the upstream response has a Content-Type indicating
+// server-sent events, which requires per-chunk flushing for real-time delivery.
+func isSSEResponse(resp *http.Response) bool {
+	return strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream")
 }
 
