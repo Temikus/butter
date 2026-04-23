@@ -519,6 +519,100 @@ func (e *Engine) ListModels() *provider.ModelListResponse {
 	}
 }
 
+// DispatchAnthropicNative routes an Anthropic Messages API request to providers
+// that implement AnthropicNativeHandler, with failover support.
+// Used by the /v1/messages endpoint to forward Claude Code requests.
+func (e *Engine) DispatchAnthropicNative(ctx context.Context, rawBody []byte, clientHeaders http.Header) (*http.Response, error) {
+	st := e.st.Load()
+
+	// Minimal parse to extract model for routing.
+	var partial struct {
+		Model string `json:"model"`
+	}
+	if err := json.Unmarshal(rawBody, &partial); err != nil {
+		return nil, fmt.Errorf("invalid request body: %w", err)
+	}
+	if partial.Model == "" {
+		return nil, fmt.Errorf("missing required field: model")
+	}
+
+	providerNames := e.resolveProviders(st, partial.Model, "")
+	if len(providerNames) == 0 {
+		return nil, fmt.Errorf("no provider configured for model %q", partial.Model)
+	}
+
+	// Populate request context for tracing if available.
+	pctx := plugin.GetRequestContext(ctx)
+	if pctx != nil {
+		pctx.Model = partial.Model
+	}
+
+	failover := st.cfg.Routing.Failover
+
+	var lastErr error
+	for _, providerName := range providerNames {
+		p, err := e.registry.Get(providerName)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		handler, ok := p.(provider.AnthropicNativeHandler)
+		if !ok {
+			lastErr = fmt.Errorf("provider %q does not support Anthropic native API", providerName)
+			continue
+		}
+
+		maxAttempts := 1
+		if failover.Enabled {
+			maxAttempts = failover.MaxRetries + 1
+		}
+
+		for attempt := range maxAttempts {
+			if attempt > 0 {
+				e.backoff(st, attempt)
+			}
+
+			// Clone headers and inject auth based on credential_mode.
+			fwdHeaders := clientHeaders.Clone()
+			provCfg := st.cfg.Providers[providerName]
+			if provCfg.CredentialMode != "passthrough" {
+				apiKey := e.selectKey(st, providerName, partial.Model)
+				if apiKey != "" {
+					if setter, ok := p.(provider.AuthHeaderSetter); ok {
+						setter.SetAuthHeader(fwdHeaders, apiKey)
+					} else {
+						fwdHeaders.Set("Authorization", "Bearer "+apiKey)
+					}
+				}
+			}
+
+			e.logger.Info("dispatching anthropic native",
+				"provider", providerName,
+				"model", partial.Model,
+				"attempt", attempt,
+			)
+
+			resp, err := handler.HandleAnthropicNative(ctx, rawBody, fwdHeaders)
+			if err == nil {
+				if pctx != nil {
+					pctx.Provider = providerName
+				}
+				return resp, nil
+			}
+
+			lastErr = err
+			var pe *provider.ProviderError
+			if errors.As(err, &pe) && e.isRetryable(st, pe.StatusCode) {
+				continue // retry same provider
+			}
+			break // non-retryable, try next provider
+		}
+	}
+
+	return nil, lastErr
+}
+
 // resolveProviders determines the ordered list of providers for a given model.
 func (e *Engine) resolveProviders(st *engineState, model, explicitProvider string) []string {
 	if explicitProvider != "" {

@@ -75,6 +75,11 @@ func NewServer(cfg *config.ServerConfig, engine *proxy.Engine, logger *slog.Logg
 		embeddingsHandler = s.withAppKeyTracking(embeddingsHandler)
 	}
 	mux.Handle("POST /v1/embeddings", embeddingsHandler)
+	var messagesHandler http.Handler = http.HandlerFunc(s.handleAnthropicMessages)
+	if s.appKeyStore != nil {
+		messagesHandler = s.withAppKeyTracking(messagesHandler)
+	}
+	mux.Handle("POST /v1/messages", messagesHandler)
 	mux.HandleFunc("GET /v1/models", s.handleModels)
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("/native/{provider}/{path...}", s.handleNativePassthrough)
@@ -372,6 +377,79 @@ func (s *Server) handleNativePassthrough(w http.ResponseWriter, r *http.Request)
 		flusher, ok := w.(http.Flusher)
 		if !ok {
 			s.logger.Warn("streaming passthrough: ResponseWriter does not support Flush")
+			_, _ = io.Copy(w, resp.Body)
+			return
+		}
+		_, _ = io.Copy(&flushWriter{w: w, flusher: flusher}, resp.Body)
+	} else {
+		_, _ = io.Copy(w, resp.Body)
+	}
+}
+
+// handleAnthropicMessages handles POST /v1/messages — the Anthropic Messages API
+// endpoint. Routes to providers via DispatchAnthropicNative with failover support.
+func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	_ = r.Body.Close()
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, "failed to read request body")
+		return
+	}
+
+	// Run transport pre-hooks.
+	pctx := &plugin.RequestContext{
+		Request:   r,
+		Body:      body,
+		Metadata:  make(map[string]any),
+		StartTime: time.Now(),
+	}
+	ctx := plugin.WithRequestContext(r.Context(), pctx)
+	if s.chain != nil {
+		s.chain.RunPreHTTP(pctx)
+		if pctx.ShortCircuit {
+			s.writeShortCircuit(w, pctx)
+			return
+		}
+	}
+
+	// Forward client headers, stripping hop-by-hop headers.
+	fwdHeaders := r.Header.Clone()
+	fwdHeaders.Del("Host")
+	fwdHeaders.Del("Connection")
+
+	resp, err := s.engine.DispatchAnthropicNative(ctx, body, fwdHeaders)
+	if err != nil {
+		status := http.StatusBadGateway
+		var pe *provider.ProviderError
+		if errors.As(err, &pe) {
+			status = pe.StatusCode
+		}
+		s.logger.Error("anthropic native dispatch failed", "error", err)
+		s.writeError(w, status, err.Error())
+		s.emitTrace(pctx, r, status, false, err)
+		return
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if s.chain != nil {
+		s.chain.RunPostHTTP(pctx)
+	}
+
+	streaming := isSSEResponse(resp)
+	s.emitTrace(pctx, r, resp.StatusCode, streaming, nil)
+
+	// Relay upstream response headers.
+	for k, vs := range resp.Header {
+		for _, v := range vs {
+			w.Header().Add(k, v)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+
+	if streaming {
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			s.logger.Warn("streaming messages: ResponseWriter does not support Flush")
 			_, _ = io.Copy(w, resp.Body)
 			return
 		}

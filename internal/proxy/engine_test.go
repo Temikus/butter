@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -863,6 +864,173 @@ func TestDispatchPassthroughCredentialModePassthrough(t *testing.T) {
 	// With credential_mode=passthrough, the engine should NOT inject stored keys.
 	// The client's original Authorization header should be preserved.
 	if got := capturedHeaders.Get("Authorization"); got != "Bearer sk-client-key" {
+		t.Errorf("expected client key preserved, got %q", got)
+	}
+}
+
+// mockAnthropicNativeProvider embeds mockProvider and adds HandleAnthropicNative.
+type mockAnthropicNativeProvider struct {
+	mockProvider
+	handleFn func(ctx context.Context, body []byte, headers http.Header) (*http.Response, error)
+}
+
+func (m *mockAnthropicNativeProvider) HandleAnthropicNative(ctx context.Context, body []byte, headers http.Header) (*http.Response, error) {
+	if m.handleFn != nil {
+		return m.handleFn(ctx, body, headers)
+	}
+	return &http.Response{
+		StatusCode: 200,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"id":"msg_test","type":"message"}`)),
+	}, nil
+}
+
+func TestDispatchAnthropicNative_DefaultProvider(t *testing.T) {
+	mock := &mockAnthropicNativeProvider{mockProvider: mockProvider{name: "anthropic"}}
+
+	reg := provider.NewRegistry()
+	reg.Register(mock)
+
+	cfg := &config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"anthropic": {CredentialMode: "passthrough"},
+		},
+		Routing: config.RoutingConfig{DefaultProvider: "anthropic"},
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	engine := NewEngine(reg, cfg, logger, nil)
+
+	resp, err := engine.DispatchAnthropicNative(context.Background(),
+		[]byte(`{"model":"claude-3","messages":[]}`), http.Header{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != 200 {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestDispatchAnthropicNative_Failover(t *testing.T) {
+	primary := &mockAnthropicNativeProvider{
+		mockProvider: mockProvider{name: "anthropic"},
+		handleFn: func(_ context.Context, _ []byte, _ http.Header) (*http.Response, error) {
+			return nil, &provider.ProviderError{StatusCode: 503, Message: "service unavailable"}
+		},
+	}
+	secondary := &mockAnthropicNativeProvider{mockProvider: mockProvider{name: "bedrock"}}
+
+	reg := provider.NewRegistry()
+	reg.Register(primary)
+	reg.Register(secondary)
+
+	cfg := &config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"anthropic": {CredentialMode: "passthrough"},
+			"bedrock":   {},
+		},
+		Routing: config.RoutingConfig{
+			Models: map[string]config.ModelRoute{
+				"claude-3": {Providers: []string{"anthropic", "bedrock"}},
+			},
+			Failover: config.FailoverConfig{
+				Enabled:    true,
+				MaxRetries: 1,
+				RetryOn:    []int{503},
+			},
+		},
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	engine := NewEngine(reg, cfg, logger, nil)
+	engine.sleepFn = func(time.Duration) {} // skip backoff
+
+	resp, err := engine.DispatchAnthropicNative(context.Background(),
+		[]byte(`{"model":"claude-3","messages":[]}`), http.Header{})
+	if err != nil {
+		t.Fatalf("expected failover to bedrock, got error: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "msg_test") {
+		t.Errorf("expected bedrock response, got: %s", body)
+	}
+}
+
+func TestDispatchAnthropicNative_UnsupportedProvider(t *testing.T) {
+	// Regular mockProvider does NOT implement AnthropicNativeHandler.
+	unsupported := &mockProvider{name: "openrouter"}
+	supported := &mockAnthropicNativeProvider{mockProvider: mockProvider{name: "anthropic"}}
+
+	reg := provider.NewRegistry()
+	reg.Register(unsupported)
+	reg.Register(supported)
+
+	cfg := &config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"openrouter": {},
+			"anthropic":  {CredentialMode: "passthrough"},
+		},
+		Routing: config.RoutingConfig{
+			Models: map[string]config.ModelRoute{
+				"claude-3": {Providers: []string{"openrouter", "anthropic"}},
+			},
+		},
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	engine := NewEngine(reg, cfg, logger, nil)
+
+	resp, err := engine.DispatchAnthropicNative(context.Background(),
+		[]byte(`{"model":"claude-3","messages":[]}`), http.Header{})
+	if err != nil {
+		t.Fatalf("expected skip to anthropic, got error: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != 200 {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestDispatchAnthropicNative_CredentialPassthrough(t *testing.T) {
+	var capturedHeaders http.Header
+	mock := &mockAnthropicNativeProvider{
+		mockProvider: mockProvider{name: "anthropic"},
+		handleFn: func(_ context.Context, _ []byte, headers http.Header) (*http.Response, error) {
+			capturedHeaders = headers.Clone()
+			return &http.Response{
+				StatusCode: 200,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"id":"msg_test"}`)),
+			}, nil
+		},
+	}
+
+	reg := provider.NewRegistry()
+	reg.Register(mock)
+
+	cfg := &config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"anthropic": {
+				Keys:           []config.KeyConfig{{Key: "sk-stored", Weight: 1}},
+				CredentialMode: "passthrough",
+			},
+		},
+		Routing: config.RoutingConfig{DefaultProvider: "anthropic"},
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	engine := NewEngine(reg, cfg, logger, nil)
+
+	clientHeaders := make(http.Header)
+	clientHeaders.Set("X-Api-Key", "sk-client-key")
+	_, err := engine.DispatchAnthropicNative(context.Background(),
+		[]byte(`{"model":"claude-3","messages":[]}`), clientHeaders)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got := capturedHeaders.Get("X-Api-Key"); got != "sk-client-key" {
 		t.Errorf("expected client key preserved, got %q", got)
 	}
 }

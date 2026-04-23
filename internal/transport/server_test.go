@@ -15,6 +15,7 @@ import (
 
 	"github.com/temikus/butter/internal/config"
 	"github.com/temikus/butter/internal/provider"
+	"github.com/temikus/butter/internal/provider/anthropic"
 	"github.com/temikus/butter/internal/provider/openrouter"
 	"github.com/temikus/butter/internal/proxy"
 	"github.com/temikus/butter/internal/transport"
@@ -604,6 +605,135 @@ func TestNativePassthroughSSEContentTypeWithCharset(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	if !strings.Contains(string(body), "hello") {
 		t.Errorf("expected response to contain 'hello', got: %s", body)
+	}
+}
+
+func setupAnthropicTestServer(t *testing.T, mockProviderURL string) *httptest.Server {
+	t.Helper()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Address:      ":0",
+			ReadTimeout:  5 * time.Second,
+			WriteTimeout: 30 * time.Second,
+		},
+		Providers: map[string]config.ProviderConfig{
+			"anthropic": {
+				BaseURL:        mockProviderURL,
+				CredentialMode: "passthrough",
+			},
+		},
+		Routing: config.RoutingConfig{
+			DefaultProvider: "anthropic",
+		},
+	}
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	registry := provider.NewRegistry()
+	registry.Register(anthropic.New(mockProviderURL, nil))
+
+	engine := proxy.NewEngine(registry, cfg, logger, nil)
+	srv := transport.NewServer(&cfg.Server, engine, logger, nil)
+	ts := httptest.NewServer(srv.Handler())
+	return ts
+}
+
+func TestAnthropicMessages_NonStreaming(t *testing.T) {
+	mockProvider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/messages" {
+			http.Error(w, "not found", 404)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"id":"msg_123","type":"message","content":[{"type":"text","text":"Hello"}]}`)
+	}))
+	defer mockProvider.Close()
+
+	ts := setupAnthropicTestServer(t, mockProvider.URL)
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/v1/messages", "application/json",
+		strings.NewReader(`{"model":"claude-3","messages":[{"role":"user","content":"Hi"}]}`))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "msg_123") {
+		t.Errorf("expected response to contain msg_123, got: %s", body)
+	}
+}
+
+func TestAnthropicMessages_Streaming(t *testing.T) {
+	mockProvider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "no flusher", 500)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(200)
+
+		events := []string{
+			"event: message_start\ndata: {\"type\":\"message_start\"}\n\n",
+			"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"text\":\"Hi\"}}\n\n",
+			"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+		}
+		for _, e := range events {
+			_, _ = fmt.Fprint(w, e)
+			flusher.Flush()
+		}
+	}))
+	defer mockProvider.Close()
+
+	ts := setupAnthropicTestServer(t, mockProvider.URL)
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/v1/messages", "application/json",
+		strings.NewReader(`{"model":"claude-3","stream":true,"messages":[{"role":"user","content":"Hi"}]}`))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "text/event-stream" {
+		t.Errorf("expected Content-Type text/event-stream, got %q", ct)
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "message_stop") {
+		t.Errorf("expected SSE events, got: %s", body)
+	}
+}
+
+func TestAnthropicMessages_ProviderError(t *testing.T) {
+	mockProvider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(429)
+		_, _ = fmt.Fprint(w, `{"type":"error","error":{"type":"rate_limit_error","message":"too many requests"}}`)
+	}))
+	defer mockProvider.Close()
+
+	ts := setupAnthropicTestServer(t, mockProvider.URL)
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/v1/messages", "application/json",
+		strings.NewReader(`{"model":"claude-3","messages":[]}`))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != 429 {
+		t.Errorf("expected 429, got %d", resp.StatusCode)
 	}
 }
 

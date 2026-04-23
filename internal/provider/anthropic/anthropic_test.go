@@ -3,10 +3,12 @@ package anthropic
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/temikus/butter/internal/provider"
@@ -774,5 +776,73 @@ func assertChunkHasFinishReason(t *testing.T, chunk []byte, expected string) {
 	}
 	if *c.Choices[0].FinishReason != expected {
 		t.Errorf("expected finish_reason=%q, got %q", expected, *c.Choices[0].FinishReason)
+	}
+}
+
+func TestHandleAnthropicNative(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/messages" {
+			t.Errorf("expected /messages, got %s", r.URL.Path)
+		}
+		if r.Method != "POST" {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		// Verify headers are forwarded.
+		if r.Header.Get("x-api-key") != "sk-test" {
+			t.Errorf("expected x-api-key header, got %q", r.Header.Get("x-api-key"))
+		}
+		if r.Header.Get("anthropic-version") != "2023-06-01" {
+			t.Errorf("expected anthropic-version header, got %q", r.Header.Get("anthropic-version"))
+		}
+		// Verify body is forwarded unchanged.
+		body, _ := io.ReadAll(r.Body)
+		if string(body) != `{"model":"claude-3","messages":[]}` {
+			t.Errorf("unexpected body: %s", body)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"id":"msg_123","type":"message","content":[{"type":"text","text":"Hello"}]}`)
+	}))
+	defer server.Close()
+
+	p := New(server.URL, nil)
+	headers := http.Header{
+		"x-api-key":         []string{"sk-test"},
+		"anthropic-version": []string{"2023-06-01"},
+		"Content-Type":      []string{"application/json"},
+	}
+	resp, err := p.HandleAnthropicNative(context.Background(), []byte(`{"model":"claude-3","messages":[]}`), headers)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != 200 {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "msg_123") {
+		t.Errorf("expected response to contain msg_123, got: %s", body)
+	}
+}
+
+func TestHandleAnthropicNativeError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(429)
+		_, _ = fmt.Fprint(w, `{"type":"error","error":{"type":"rate_limit_error","message":"too many requests"}}`)
+	}))
+	defer server.Close()
+
+	p := New(server.URL, nil)
+	_, err := p.HandleAnthropicNative(context.Background(), []byte(`{"model":"claude-3","messages":[]}`), http.Header{})
+	if err == nil {
+		t.Fatal("expected error for 429 response")
+	}
+
+	var pe *provider.ProviderError
+	if !errors.As(err, &pe) {
+		t.Fatalf("expected ProviderError, got %T: %v", err, err)
+	}
+	if pe.StatusCode != 429 {
+		t.Errorf("expected status 429, got %d", pe.StatusCode)
 	}
 }

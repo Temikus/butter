@@ -136,6 +136,39 @@ func (p *Provider) ChatCompletionStream(ctx context.Context, req *provider.ChatR
 	}, nil
 }
 
+// Compile-time check that Provider implements AnthropicNativeHandler.
+var _ provider.AnthropicNativeHandler = (*Provider)(nil)
+
+// HandleAnthropicNative forwards an Anthropic Messages API request to the
+// upstream Anthropic API unchanged. On success (2xx), the response is returned
+// with the body open. On error (4xx/5xx), the body is consumed and a
+// ProviderError is returned to enable the engine's failover logic.
+func (p *Provider) HandleAnthropicNative(ctx context.Context, body []byte, headers http.Header) (*http.Response, error) {
+	url := p.baseURL + "/messages"
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	for k, vs := range headers {
+		for _, v := range vs {
+			req.Header.Add(k, v)
+		}
+	}
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode >= 400 {
+		defer func() { _ = resp.Body.Close() }()
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, &provider.ProviderError{
+			StatusCode: resp.StatusCode,
+			Message:    string(respBody),
+		}
+	}
+	return resp, nil
+}
+
 func (p *Provider) Passthrough(ctx context.Context, method, path string, body io.Reader, headers http.Header) (*http.Response, error) {
 	url := p.baseURL + path
 	req, err := http.NewRequestWithContext(ctx, method, url, body)
