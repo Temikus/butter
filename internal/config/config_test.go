@@ -144,6 +144,28 @@ routing:
 	if cfg.Providers["openrouter"].Keys[0].Weight != 1 {
 		t.Errorf("expected default weight 1, got %d", cfg.Providers["openrouter"].Keys[0].Weight)
 	}
+	if cfg.Providers["openrouter"].CredentialMode != "stored" {
+		t.Errorf("expected default credential_mode 'stored', got %q", cfg.Providers["openrouter"].CredentialMode)
+	}
+}
+
+func TestCredentialModePassthrough(t *testing.T) {
+	path := writeTestConfig(t, `
+providers:
+  anthropic:
+    credential_mode: passthrough
+routing:
+  default_provider: anthropic
+`)
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.Providers["anthropic"].CredentialMode != "passthrough" {
+		t.Errorf("expected credential_mode 'passthrough', got %q", cfg.Providers["anthropic"].CredentialMode)
+	}
 }
 
 func TestLoadMissingFile(t *testing.T) {

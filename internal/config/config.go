@@ -80,8 +80,9 @@ type ServerConfig struct {
 }
 
 type ProviderConfig struct {
-	BaseURL string      `yaml:"base_url"`
-	Keys    []KeyConfig `yaml:"keys"`
+	BaseURL        string      `yaml:"base_url"`
+	Keys           []KeyConfig `yaml:"keys"`
+	CredentialMode string      `yaml:"credential_mode,omitempty"` // "stored" (default) | "passthrough"
 }
 
 type KeyConfig struct {
@@ -188,6 +189,9 @@ func applyDefaults(cfg *Config) {
 		}
 	}
 	for name, p := range cfg.Providers {
+		if p.CredentialMode == "" {
+			p.CredentialMode = "stored"
+		}
 		for i := range p.Keys {
 			if p.Keys[i].Weight == 0 {
 				p.Keys[i].Weight = 1

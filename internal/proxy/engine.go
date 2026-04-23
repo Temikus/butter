@@ -400,14 +400,18 @@ func (e *Engine) DispatchPassthrough(ctx context.Context, providerName, method, 
 		return nil, fmt.Errorf("provider %q does not support passthrough", providerName)
 	}
 
-	// Select a key (model-agnostic for passthrough).
-	apiKey := e.selectKey(st, providerName, "")
-	if apiKey != "" {
-		headers = headers.Clone()
-		if setter, ok := p.(provider.AuthHeaderSetter); ok {
-			setter.SetAuthHeader(headers, apiKey)
-		} else {
-			headers.Set("Authorization", "Bearer "+apiKey)
+	// Inject stored credentials unless the provider is configured for passthrough,
+	// in which case the client's own auth headers are forwarded unchanged.
+	provCfg := st.cfg.Providers[providerName]
+	if provCfg.CredentialMode != "passthrough" {
+		apiKey := e.selectKey(st, providerName, "")
+		if apiKey != "" {
+			headers = headers.Clone()
+			if setter, ok := p.(provider.AuthHeaderSetter); ok {
+				setter.SetAuthHeader(headers, apiKey)
+			} else {
+				headers.Set("Authorization", "Bearer "+apiKey)
+			}
 		}
 	}
 

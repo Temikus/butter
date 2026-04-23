@@ -17,11 +17,12 @@ import (
 )
 
 type mockProvider struct {
-	name     string
-	response *provider.ChatResponse
-	chatFn   func(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error)
-	streamFn func(ctx context.Context, req *provider.ChatRequest) (provider.Stream, error)
-	lastReq  *provider.ChatRequest
+	name          string
+	response      *provider.ChatResponse
+	chatFn        func(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error)
+	streamFn      func(ctx context.Context, req *provider.ChatRequest) (provider.Stream, error)
+	passthroughFn func(ctx context.Context, method, path string, body io.Reader, headers http.Header) (*http.Response, error)
+	lastReq       *provider.ChatRequest
 }
 
 func (m *mockProvider) Name() string                                 { return m.name }
@@ -41,6 +42,9 @@ func (m *mockProvider) ChatCompletionStream(ctx context.Context, req *provider.C
 	return nil, nil
 }
 func (m *mockProvider) Passthrough(ctx context.Context, method, path string, body io.Reader, headers http.Header) (*http.Response, error) {
+	if m.passthroughFn != nil {
+		return m.passthroughFn(ctx, method, path, body, headers)
+	}
 	return nil, nil
 }
 
@@ -786,5 +790,79 @@ func TestListModelsNoRoutes(t *testing.T) {
 	}
 	if result.Data == nil {
 		t.Error("expected non-nil empty slice for Data")
+	}
+}
+
+func TestDispatchPassthroughCredentialModeStored(t *testing.T) {
+	var capturedHeaders http.Header
+	mock := &mockProvider{
+		name: "openrouter",
+		passthroughFn: func(ctx context.Context, method, path string, body io.Reader, headers http.Header) (*http.Response, error) {
+			capturedHeaders = headers.Clone()
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(nil)}, nil
+		},
+	}
+
+	reg := provider.NewRegistry()
+	reg.Register(mock)
+
+	cfg := &config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"openrouter": {
+				Keys:           []config.KeyConfig{{Key: "sk-stored-key", Weight: 1}},
+				CredentialMode: "stored",
+			},
+		},
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	engine := NewEngine(reg, cfg, logger, nil)
+
+	clientHeaders := http.Header{"Authorization": []string{"Bearer sk-client-key"}}
+	_, err := engine.DispatchPassthrough(context.Background(), "openrouter", "GET", "/models", nil, clientHeaders)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// With credential_mode=stored, the engine should inject the stored key,
+	// overwriting the client's Authorization header.
+	if got := capturedHeaders.Get("Authorization"); got != "Bearer sk-stored-key" {
+		t.Errorf("expected stored key injected, got %q", got)
+	}
+}
+
+func TestDispatchPassthroughCredentialModePassthrough(t *testing.T) {
+	var capturedHeaders http.Header
+	mock := &mockProvider{
+		name: "openrouter",
+		passthroughFn: func(ctx context.Context, method, path string, body io.Reader, headers http.Header) (*http.Response, error) {
+			capturedHeaders = headers.Clone()
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(nil)}, nil
+		},
+	}
+
+	reg := provider.NewRegistry()
+	reg.Register(mock)
+
+	cfg := &config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"openrouter": {
+				Keys:           []config.KeyConfig{{Key: "sk-stored-key", Weight: 1}},
+				CredentialMode: "passthrough",
+			},
+		},
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	engine := NewEngine(reg, cfg, logger, nil)
+
+	clientHeaders := http.Header{"Authorization": []string{"Bearer sk-client-key"}}
+	_, err := engine.DispatchPassthrough(context.Background(), "openrouter", "GET", "/models", nil, clientHeaders)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// With credential_mode=passthrough, the engine should NOT inject stored keys.
+	// The client's original Authorization header should be preserved.
+	if got := capturedHeaders.Get("Authorization"); got != "Bearer sk-client-key" {
+		t.Errorf("expected client key preserved, got %q", got)
 	}
 }
