@@ -42,6 +42,17 @@ type AuthHeaderSetter interface {
 	SetAuthHeader(headers http.Header, apiKey string)
 }
 
+// AnthropicNativeHandler is an optional interface for providers that can handle
+// requests in Anthropic Messages API format directly. Both the Anthropic provider
+// (passthrough) and Bedrock provider (different transport, same body format)
+// implement this to enable cross-protocol failover.
+type AnthropicNativeHandler interface {
+	// HandleAnthropicNative processes an Anthropic Messages API request and
+	// returns a raw HTTP response in Anthropic Messages API format.
+	// For streaming requests, the response body is SSE (text/event-stream).
+	HandleAnthropicNative(ctx context.Context, body []byte, headers http.Header) (*http.Response, error)
+}
+
 // Stream represents a server-sent events stream from a provider.
 type Stream interface {
 	// Next returns the next SSE data line. Returns io.EOF when done.

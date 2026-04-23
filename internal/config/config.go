@@ -80,9 +80,12 @@ type ServerConfig struct {
 }
 
 type ProviderConfig struct {
-	BaseURL        string      `yaml:"base_url"`
-	Keys           []KeyConfig `yaml:"keys"`
-	CredentialMode string      `yaml:"credential_mode,omitempty"` // "stored" (default) | "passthrough"
+	BaseURL        string            `yaml:"base_url"`
+	Keys           []KeyConfig       `yaml:"keys"`
+	CredentialMode string            `yaml:"credential_mode,omitempty"` // "stored" (default) | "passthrough"
+	Region         string            `yaml:"region,omitempty"`          // AWS region (Bedrock)
+	AWSProfile     string            `yaml:"aws_profile,omitempty"`     // AWS shared config profile (Bedrock)
+	ModelMap       map[string]string `yaml:"model_map,omitempty"`       // Anthropic→Bedrock model ID overrides
 }
 
 type KeyConfig struct {

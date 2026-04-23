@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"time"
 
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+
 	"github.com/temikus/butter/internal/appkey"
 	"github.com/temikus/butter/internal/cache"
 	"github.com/temikus/butter/internal/config"
@@ -23,6 +25,7 @@ import (
 	"github.com/temikus/butter/internal/version"
 	"github.com/temikus/butter/internal/provider"
 	"github.com/temikus/butter/internal/provider/anthropic"
+	"github.com/temikus/butter/internal/provider/bedrock"
 	"github.com/temikus/butter/internal/provider/fireworks"
 	"github.com/temikus/butter/internal/provider/gemini"
 	"github.com/temikus/butter/internal/provider/groq"
@@ -87,6 +90,20 @@ func main() {
 			registry.Register(fireworks.New(provCfg.BaseURL, httpClient))
 		case "gemini":
 			registry.Register(gemini.New(provCfg.BaseURL, httpClient))
+		case "bedrock":
+			opts := []func(*awsconfig.LoadOptions) error{}
+			if provCfg.Region != "" {
+				opts = append(opts, awsconfig.WithRegion(provCfg.Region))
+			}
+			if provCfg.AWSProfile != "" {
+				opts = append(opts, awsconfig.WithSharedConfigProfile(provCfg.AWSProfile))
+			}
+			awsCfg, err := awsconfig.LoadDefaultConfig(context.Background(), opts...)
+			if err != nil {
+				logger.Error("failed to load AWS config for bedrock", "error", err)
+				os.Exit(1)
+			}
+			registry.Register(bedrock.New(awsCfg, provCfg.ModelMap))
 		case "perplexity":
 			registry.Register(perplexity.New(provCfg.BaseURL, httpClient))
 		default:
