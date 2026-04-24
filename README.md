@@ -233,10 +233,11 @@ A [`justfile`](https://github.com/casey/just) is provided for common tasks:
 just build              # Build binary (with commit hash)
 just build-release      # Build with full version info from git
 just serve              # Run with config (auto-loads API keys from ~/.openai/api-key etc.)
-just test               # Run all tests with race detector
-just test-integration   # Run integration tests (mock servers, no real API calls)
+just test               # Run all tests with race detector (unit + integration)
+just test integration   # Run integration tests only (mock servers, no real API calls)
+just test one ./internal/proxy/ TestDispatch  # Run a single test
 just lint               # Run golangci-lint
-just check              # Run vet + lint + test + integration tests
+just check              # Run vet + lint + all tests
 just bench              # Run benchmarks with allocation reporting
 just release-snapshot   # Test GoReleaser locally (no publish)
 just docker-build       # Build multi-stage Docker image

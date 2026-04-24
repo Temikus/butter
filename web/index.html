@@ -85,7 +85,7 @@
         <div class="feature-card">
           <span class="icon">&#127919;</span>
           <h3>Multi-Provider Routing</h3>
-          <p>Route models to 9 providers — OpenAI, Anthropic, Gemini, OpenRouter, Groq, Mistral, Together.ai, Fireworks, Perplexity — with priority or round-robin strategies.</p>
+          <p>Route models to 10 providers — OpenAI, Anthropic, AWS Bedrock, Gemini, OpenRouter, Groq, Mistral, Together.ai, Fireworks, Perplexity — with priority or round-robin strategies.</p>
         </div>
         <div class="feature-card">
           <span class="icon">&#128259;</span>
@@ -154,10 +154,15 @@
           <h3>Embeddings &amp; Models</h3>
           <p>Full <code>/v1/embeddings</code> and <code>/v1/models</code> endpoints for SDK compatibility. Embeddings route through the same failover logic as chat.</p>
         </div>
+        <div class="feature-card">
+          <span class="icon">&#128272;</span>
+          <h3>Credential Passthrough</h3>
+          <p>Per-provider <code>credential_mode</code> — <code>stored</code> injects managed keys; <code>passthrough</code> forwards the client's own auth headers unchanged.</p>
+        </div>
         <div class="feature-card coming-soon">
           <span class="coming-soon-badge">Coming Soon</span>
           <h3>More Providers</h3>
-          <p>Azure OpenAI, AWS Bedrock, Vertex AI, and more to match full Bifrost coverage.</p>
+          <p>Azure OpenAI, Vertex AI, and more to match full Bifrost coverage.</p>
         </div>
       </div>
     </section>
