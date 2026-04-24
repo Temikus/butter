@@ -67,6 +67,10 @@ type Request struct {
 	// Metadata is a string-keyed bag that persists across all hooks
 	// within a single request. Plugins can read and write arbitrary
 	// JSON-compatible values here to pass state between hooks.
+	//
+	// Well-known keys set by the Butter host:
+	//   - "app_key": the resolved application key (btr_-prefixed string),
+	//     present when app_keys is enabled and the client sent a valid key.
 	Metadata map[string]any `json:"metadata,omitempty"`
 }
 

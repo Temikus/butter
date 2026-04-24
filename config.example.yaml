@@ -18,6 +18,7 @@ providers:
 
   anthropic:
     base_url: https://api.anthropic.com/v1
+    # credential_mode: stored             # "stored" (default) | "passthrough"
     keys:
       - key: "${ANTHROPIC_API_KEY}"
         weight: 1
@@ -57,6 +58,14 @@ providers:
   #   keys:
   #     - key: "${GEMINI_API_KEY}"
   #       weight: 1
+
+  # bedrock:
+  #   region: us-east-1                   # AWS region for Bedrock
+  #   # aws_profile: my-profile           # Optional: AWS shared config profile
+  #   # credential_mode: stored           # "stored" (default) | "passthrough"
+  #   # model_map:                        # Optional: override Anthropic → Bedrock model IDs
+  #   #   claude-3-5-sonnet-20241022: anthropic.claude-3-5-sonnet-20241022-v2:0
+  #   # keys: []                          # Bedrock uses IAM auth, not API keys
 
 routing:
   default_provider: openrouter

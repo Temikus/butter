@@ -176,6 +176,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		Metadata:  make(map[string]any),
 		StartTime: time.Now(),
 	}
+	injectAppKeyMetadata(r.Context(), pctx.Metadata)
 	if s.chain != nil {
 		s.chain.RunPreHTTP(pctx)
 		if pctx.ShortCircuit {
@@ -334,6 +335,7 @@ func (s *Server) handleNativePassthrough(w http.ResponseWriter, r *http.Request)
 		Metadata:  make(map[string]any),
 		StartTime: time.Now(),
 	}
+	injectAppKeyMetadata(r.Context(), pctx.Metadata)
 	if s.chain != nil {
 		s.chain.RunPreHTTP(pctx)
 		if pctx.ShortCircuit {
@@ -403,6 +405,7 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
 		Metadata:  make(map[string]any),
 		StartTime: time.Now(),
 	}
+	injectAppKeyMetadata(r.Context(), pctx.Metadata)
 	ctx := plugin.WithRequestContext(r.Context(), pctx)
 	if s.chain != nil {
 		s.chain.RunPreHTTP(pctx)
@@ -513,6 +516,7 @@ func (s *Server) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 		Metadata:  make(map[string]any),
 		StartTime: time.Now(),
 	}
+	injectAppKeyMetadata(r.Context(), pctx.Metadata)
 	if s.chain != nil {
 		s.chain.RunPreHTTP(pctx)
 		if pctx.ShortCircuit {
@@ -571,6 +575,14 @@ func (s *Server) writeError(w http.ResponseWriter, status int, msg string) {
 func isStreamRequest(body []byte) bool {
 	return bytes.Contains(body, []byte(`"stream":true`)) ||
 		bytes.Contains(body, []byte(`"stream": true`))
+}
+
+// injectAppKeyMetadata copies the resolved app key from the request context
+// into the plugin metadata map, making it available to all plugins.
+func injectAppKeyMetadata(ctx context.Context, metadata map[string]any) {
+	if key, ok := appkey.FromContext(ctx); ok {
+		metadata["app_key"] = key
+	}
 }
 
 // isSSEResponse checks if the upstream response has a Content-Type indicating

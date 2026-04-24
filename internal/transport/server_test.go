@@ -13,7 +13,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/temikus/butter/internal/appkey"
 	"github.com/temikus/butter/internal/config"
+	"github.com/temikus/butter/internal/plugin"
 	"github.com/temikus/butter/internal/provider"
 	"github.com/temikus/butter/internal/provider/anthropic"
 	"github.com/temikus/butter/internal/provider/openrouter"
@@ -865,6 +867,141 @@ func TestNonHealthzLogsAtInfo(t *testing.T) {
 	}
 	if found.Level != slog.LevelInfo {
 		t.Errorf("expected Info level for /v1/chat/completions log, got %v", found.Level)
+	}
+}
+
+// captureMetadataPlugin is a TransportPlugin that captures metadata from PreHTTP.
+type captureMetadataPlugin struct {
+	mu       sync.Mutex
+	metadata map[string]any
+}
+
+func (p *captureMetadataPlugin) Name() string              { return "capture-metadata" }
+func (p *captureMetadataPlugin) Init(_ map[string]any) error { return nil }
+func (p *captureMetadataPlugin) Close() error              { return nil }
+func (p *captureMetadataPlugin) PostHTTP(_ *plugin.RequestContext) error { return nil }
+func (p *captureMetadataPlugin) StreamChunk(_ *plugin.RequestContext, chunk []byte) ([]byte, error) {
+	return chunk, nil
+}
+
+func (p *captureMetadataPlugin) PreHTTP(ctx *plugin.RequestContext) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.metadata = make(map[string]any)
+	for k, v := range ctx.Metadata {
+		p.metadata[k] = v
+	}
+	return nil
+}
+
+func (p *captureMetadataPlugin) getMetadata() map[string]any {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	cp := make(map[string]any)
+	for k, v := range p.metadata {
+		cp[k] = v
+	}
+	return cp
+}
+
+// setupAppKeyTestServer creates a test server with app-key tracking and a
+// metadata-capturing plugin. Returns the httptest.Server and the capture plugin.
+func setupAppKeyTestServer(t *testing.T, mockProviderURL string, provisionKeys ...string) (*httptest.Server, *captureMetadataPlugin) {
+	t.Helper()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Address:      ":0",
+			ReadTimeout:  5 * time.Second,
+			WriteTimeout: 30 * time.Second,
+		},
+		Providers: map[string]config.ProviderConfig{
+			"openrouter": {
+				BaseURL: mockProviderURL,
+				Keys:    []config.KeyConfig{{Key: "test-key", Weight: 1}},
+			},
+		},
+		Routing: config.RoutingConfig{DefaultProvider: "openrouter"},
+	}
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	registry := provider.NewRegistry()
+	registry.Register(openrouter.New(mockProviderURL, nil))
+
+	capture := &captureMetadataPlugin{}
+	mgr := plugin.NewManager(logger)
+	mgr.Register(capture)
+	chain := plugin.NewChain(mgr, logger)
+
+	store := appkey.NewStore()
+	for _, k := range provisionKeys {
+		store.Provision(k, "test")
+	}
+
+	engine := proxy.NewEngine(registry, cfg, logger, chain)
+	srv := transport.NewServer(&cfg.Server, engine, logger, chain,
+		transport.WithAppKeyStore(store, "X-Butter-App-Key", false))
+	ts := httptest.NewServer(srv.Handler())
+	return ts, capture
+}
+
+func TestAppKeyMetadataInjected(t *testing.T) {
+	mockProv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"id":"ok","choices":[{"message":{"role":"assistant","content":"hi"},"finish_reason":"stop","index":0}]}`)
+	}))
+	defer mockProv.Close()
+
+	ts, capture := setupAppKeyTestServer(t, mockProv.URL, "btr_test0000000000000000")
+	defer ts.Close()
+
+	reqBody := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`
+	req, _ := http.NewRequest("POST", ts.URL+"/v1/chat/completions", strings.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Butter-App-Key", "btr_test0000000000000000")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	_, _ = io.ReadAll(resp.Body)
+
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	meta := capture.getMetadata()
+	if meta["app_key"] != "btr_test0000000000000000" {
+		t.Errorf("expected app_key=btr_test0000000000000000 in metadata, got %v", meta["app_key"])
+	}
+}
+
+func TestAppKeyMetadataAbsentWhenNoKey(t *testing.T) {
+	mockProv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"id":"ok","choices":[{"message":{"role":"assistant","content":"hi"},"finish_reason":"stop","index":0}]}`)
+	}))
+	defer mockProv.Close()
+
+	ts, capture := setupAppKeyTestServer(t, mockProv.URL)
+	defer ts.Close()
+
+	reqBody := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`
+	resp, err := http.Post(ts.URL+"/v1/chat/completions", "application/json", strings.NewReader(reqBody))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	_, _ = io.ReadAll(resp.Body)
+
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	meta := capture.getMetadata()
+	if _, exists := meta["app_key"]; exists {
+		t.Errorf("expected no app_key in metadata when header is absent, got %v", meta["app_key"])
 	}
 }
 

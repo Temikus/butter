@@ -15,7 +15,7 @@ A blazingly fast AI proxy gateway written in Go. Butter sits between your applic
 Inspired by [Bifrost](https://github.com/maximhq/bifrost), but with a focus on simplicity, extensibility via WASM plugins, and raw performance.
 
 ```
-Your App ──▶ Butter ──▶ OpenAI / Anthropic / Gemini / Groq / Mistral / ...
+Your App ──▶ Butter ──▶ OpenAI / Anthropic / Bedrock / Gemini / Groq / Mistral / ...
                 │
                 ├── Unified OpenAI-compatible API
                 ├── Automatic failover & retries
@@ -26,7 +26,8 @@ Your App ──▶ Butter ──▶ OpenAI / Anthropic / Gemini / Groq / Mistral
 ## Features
 
 - OpenAI-compatible API — `/v1/chat/completions` (streaming & non-streaming), `/v1/embeddings`, `/v1/models`
-- **9 providers**: OpenAI, Anthropic, Gemini, OpenRouter, Groq, Mistral, Together.ai, Fireworks, Perplexity — shared `openaicompat` base for any OpenAI-compatible API
+- Anthropic Messages API — `POST /v1/messages` (streaming & non-streaming), with failover across Anthropic-native providers
+- **10 providers**: OpenAI, Anthropic, AWS Bedrock, Gemini, OpenRouter, Groq, Mistral, Together.ai, Fireworks, Perplexity — shared `openaicompat` base for OpenAI-compatible APIs; `AnthropicNativeHandler` interface for Anthropic-format providers (Anthropic, Bedrock)
 - Anthropic & Gemini format translation (OpenAI requests automatically converted to/from native formats)
 - Multi-provider routing with model-specific provider lists and priority/round-robin strategies
 - Weighted random key selection with per-key model allowlists
@@ -42,20 +43,21 @@ Your App ──▶ Butter ──▶ OpenAI / Anthropic / Gemini / Groq / Mistral
 - Response caching (in-memory LRU or Redis backend; SHA256 cache key; temperature=0 non-streaming only)
 - Config hot-reload (mtime polling, atomic engine swap — no restart required)
 - **Application keys** for usage tracking and attribution — vend `btr_` tokens, track per-key request/token counts, optional enforcement via `require_key`
+- Per-provider `credential_mode` — `stored` (default, inject managed keys) or `passthrough` (forward client's own auth headers unchanged)
 - Raw HTTP passthrough for provider-native endpoints (`/native/{provider}/*`)
 - Health check endpoint (`/healthz`)
 - Graceful shutdown (SIGINT/SIGTERM)
 - Multi-stage Docker image (distroless base)
 
 **Coming soon:**
-- More providers (Azure OpenAI, AWS Bedrock, Vertex AI)
+- More providers (Azure OpenAI, Vertex AI)
 
 ## Quick Start
 
 ### Prerequisites
 
 - Go 1.25+ (uses enhanced `ServeMux` pattern routing)
-- An API key for a supported provider ([OpenAI](https://platform.openai.com/), [Anthropic](https://console.anthropic.com/), [Google Gemini](https://ai.google.dev/), [OpenRouter](https://openrouter.ai/), [Groq](https://console.groq.com/), [Mistral](https://console.mistral.ai/), [Together.ai](https://api.together.xyz/), [Fireworks](https://fireworks.ai/), [Perplexity](https://www.perplexity.ai/), or any OpenAI-compatible API)
+- An API key for a supported provider ([OpenAI](https://platform.openai.com/), [Anthropic](https://console.anthropic.com/), [AWS Bedrock](https://aws.amazon.com/bedrock/), [Google Gemini](https://ai.google.dev/), [OpenRouter](https://openrouter.ai/), [Groq](https://console.groq.com/), [Mistral](https://console.mistral.ai/), [Together.ai](https://api.together.xyz/), [Fireworks](https://fireworks.ai/), [Perplexity](https://www.perplexity.ai/), or any OpenAI-compatible API)
 
 ### 1. Install
 
@@ -277,6 +279,7 @@ butter/
 │       ├── openaicompat/        Reusable base for OpenAI-compatible APIs
 │       ├── openai/              OpenAI provider
 │       ├── anthropic/           Anthropic provider (format translation)
+│       ├── bedrock/             AWS Bedrock provider (SigV4, AnthropicNativeHandler)
 │       ├── gemini/              Google Gemini provider (format translation)
 │       ├── openrouter/          OpenRouter provider
 │       ├── groq/                Groq provider
