@@ -11,13 +11,17 @@ import (
 )
 
 // Plugin implements a token-bucket rate limiter as a TransportPlugin.
-// It supports global and per-client-IP rate limiting.
+// It supports global, per-client-IP, and per-app-key rate limiting.
 type Plugin struct {
-	mu      sync.Mutex
-	rpm     int
-	perIP   bool
-	buckets map[string]*bucket
-	global  *bucket
+	mu           sync.Mutex
+	rpm          int
+	perIP        bool
+	perAppKey    bool
+	appKeyRPM    int            // default RPM for app keys; 0 = fall back to rpm
+	appKeyLimits map[string]int // per-key RPM overrides
+	buckets      map[string]*bucket
+	global       *bucket
+	done         chan struct{} // signals cleanup goroutine to stop
 }
 
 type bucket struct {
@@ -72,12 +76,36 @@ func (p *Plugin) Init(cfg map[string]any) error {
 	if v, ok := cfg["per_ip"].(bool); ok {
 		p.perIP = v
 	}
+	if v, ok := cfg["per_app_key"].(bool); ok {
+		p.perAppKey = v
+	}
+	if v, ok := cfg["per_app_key_rpm"].(int); ok && v > 0 {
+		p.appKeyRPM = v
+	}
+	if v, ok := cfg["app_key_limits"].(map[string]any); ok {
+		p.appKeyLimits = make(map[string]int, len(v))
+		for k, val := range v {
+			if rpm, ok := val.(int); ok && rpm > 0 {
+				p.appKeyLimits[k] = rpm
+			}
+		}
+	}
 	// Pre-create global bucket.
 	p.global = newBucket(p.rpm, time.Now())
+	// Start cleanup goroutine for per-key/per-IP buckets.
+	if p.perAppKey || p.perIP {
+		p.done = make(chan struct{})
+		go p.cleanupLoop()
+	}
 	return nil
 }
 
-func (p *Plugin) Close() error { return nil }
+func (p *Plugin) Close() error {
+	if p.done != nil {
+		close(p.done)
+	}
+	return nil
+}
 
 // PreHTTP checks the rate limit and short-circuits with 429 if exceeded.
 func (p *Plugin) PreHTTP(ctx *plugin.RequestContext) error {
@@ -85,14 +113,20 @@ func (p *Plugin) PreHTTP(ctx *plugin.RequestContext) error {
 	defer p.mu.Unlock()
 
 	now := time.Now()
-	b := p.getBucket(ctx.Request, now)
+	b, effectiveRPM := p.getBucket(ctx, now)
 
 	if !b.allow(now) {
 		ctx.ShortCircuit = true
 		ctx.ShortCircuitStatus = http.StatusTooManyRequests
+
+		msg := fmt.Sprintf("rate limit exceeded (%d requests/minute)", effectiveRPM)
+		if p.perAppKey {
+			if _, ok := ctx.Metadata["app_key"].(string); ok {
+				msg = fmt.Sprintf("rate limit exceeded for app key (%d requests/minute)", effectiveRPM)
+			}
+		}
 		ctx.ShortCircuitBody = []byte(fmt.Sprintf(
-			`{"error":{"message":"rate limit exceeded (%d requests/minute)","type":"rate_limit_error"}}`,
-			p.rpm,
+			`{"error":{"message":"%s","type":"rate_limit_error"}}`, msg,
 		))
 	}
 	return nil
@@ -104,21 +138,69 @@ func (p *Plugin) StreamChunk(_ *plugin.RequestContext, chunk []byte) ([]byte, er
 	return chunk, nil
 }
 
-func (p *Plugin) getBucket(r *http.Request, now time.Time) *bucket {
-	if !p.perIP {
-		if p.global == nil {
-			p.global = newBucket(p.rpm, now)
+// getBucket returns the appropriate bucket and its effective RPM limit.
+// Priority: per_app_key (if enabled and key present) > per_ip > global.
+func (p *Plugin) getBucket(ctx *plugin.RequestContext, now time.Time) (*bucket, int) {
+	if p.perAppKey {
+		if appKey, ok := ctx.Metadata["app_key"].(string); ok && appKey != "" {
+			key := "appkey:" + appKey
+			rpm := p.resolveAppKeyRPM(appKey)
+			b, ok := p.buckets[key]
+			if !ok {
+				b = newBucket(rpm, now)
+				p.buckets[key] = b
+			}
+			return b, rpm
 		}
-		return p.global
 	}
 
-	key := clientIP(r)
-	b, ok := p.buckets[key]
-	if !ok {
-		b = newBucket(p.rpm, now)
-		p.buckets[key] = b
+	if p.perIP {
+		key := "ip:" + clientIP(ctx.Request)
+		b, ok := p.buckets[key]
+		if !ok {
+			b = newBucket(p.rpm, now)
+			p.buckets[key] = b
+		}
+		return b, p.rpm
 	}
-	return b
+
+	if p.global == nil {
+		p.global = newBucket(p.rpm, now)
+	}
+	return p.global, p.rpm
+}
+
+// resolveAppKeyRPM returns the RPM for a given app key.
+// Lookup order: app_key_limits[key] -> appKeyRPM -> rpm (global default).
+func (p *Plugin) resolveAppKeyRPM(appKey string) int {
+	if rpm, ok := p.appKeyLimits[appKey]; ok {
+		return rpm
+	}
+	if p.appKeyRPM > 0 {
+		return p.appKeyRPM
+	}
+	return p.rpm
+}
+
+// cleanupLoop periodically removes stale per-IP and per-app-key buckets.
+func (p *Plugin) cleanupLoop() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-p.done:
+			return
+		case <-ticker.C:
+			p.mu.Lock()
+			now := time.Now()
+			for key, b := range p.buckets {
+				if now.Sub(b.lastFill) > 10*time.Minute {
+					delete(p.buckets, key)
+				}
+			}
+			p.mu.Unlock()
+		}
+	}
 }
 
 // clientIP extracts the client IP from the request, preferring

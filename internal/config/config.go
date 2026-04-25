@@ -86,6 +86,7 @@ type ProviderConfig struct {
 	Region         string            `yaml:"region,omitempty"`          // AWS region (Bedrock)
 	AWSProfile     string            `yaml:"aws_profile,omitempty"`     // AWS shared config profile (Bedrock)
 	ModelMap       map[string]string `yaml:"model_map,omitempty"`       // Anthropic→Bedrock model ID overrides
+	APIVersion     string            `yaml:"api_version,omitempty"`     // API version query param (Azure OpenAI)
 }
 
 type KeyConfig struct {

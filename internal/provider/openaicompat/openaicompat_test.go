@@ -388,6 +388,116 @@ func TestEmbeddingsError(t *testing.T) {
 	}
 }
 
+func TestNewWithOptions(t *testing.T) {
+	p := New("test", "http://localhost", nil,
+		WithAuthHeaderName("x-custom-key"),
+		WithQueryParams(map[string]string{"version": "v1"}),
+	)
+	if p.Name() != "test" {
+		t.Errorf("expected name test, got %s", p.Name())
+	}
+	if p.opts.authHeaderName != "x-custom-key" {
+		t.Errorf("expected authHeaderName x-custom-key, got %s", p.opts.authHeaderName)
+	}
+	if p.opts.queryParams["version"] != "v1" {
+		t.Errorf("expected queryParams[version]=v1, got %s", p.opts.queryParams["version"])
+	}
+}
+
+func TestBuildRequestCustomAuth(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("x-custom-key") != "my-key" {
+			t.Errorf("expected x-custom-key header, got %q", r.Header.Get("x-custom-key"))
+		}
+		if r.Header.Get("Authorization") != "" {
+			t.Errorf("expected no Authorization header, got %q", r.Header.Get("Authorization"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"id":"resp-1"}`)
+	}))
+	defer server.Close()
+
+	p := New("test", server.URL, nil, WithAuthHeaderName("x-custom-key"))
+	_, err := p.ChatCompletion(context.Background(), &provider.ChatRequest{
+		Model:   "test",
+		RawBody: []byte(`{"model":"test"}`),
+		APIKey:  "my-key",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestBuildRequestQueryParams(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("api-version") != "2024-10-21" {
+			t.Errorf("expected api-version=2024-10-21, got %q", r.URL.Query().Get("api-version"))
+		}
+		if r.URL.Query().Get("extra") != "value" {
+			t.Errorf("expected extra=value, got %q", r.URL.Query().Get("extra"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"id":"resp-1"}`)
+	}))
+	defer server.Close()
+
+	p := New("test", server.URL, nil, WithQueryParams(map[string]string{
+		"api-version": "2024-10-21",
+		"extra":       "value",
+	}))
+	_, err := p.ChatCompletion(context.Background(), &provider.ChatRequest{
+		Model:   "test",
+		RawBody: []byte(`{"model":"test"}`),
+		APIKey:  "test-key",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestSetAuthHeaderDefault(t *testing.T) {
+	p := New("test", "http://localhost", nil)
+	h := http.Header{}
+	p.SetAuthHeader(h, "my-key")
+
+	if h.Get("Authorization") != "Bearer my-key" {
+		t.Errorf("expected Authorization Bearer, got %q", h.Get("Authorization"))
+	}
+}
+
+func TestSetAuthHeaderCustom(t *testing.T) {
+	p := New("test", "http://localhost", nil, WithAuthHeaderName("api-key"))
+	h := http.Header{}
+	p.SetAuthHeader(h, "my-key")
+
+	if h.Get("api-key") != "my-key" {
+		t.Errorf("expected api-key my-key, got %q", h.Get("api-key"))
+	}
+	if h.Get("Authorization") != "" {
+		t.Errorf("expected no Authorization header, got %q", h.Get("Authorization"))
+	}
+}
+
+func TestPassthroughQueryParams(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("api-version") != "v1" {
+			t.Errorf("expected api-version=v1, got %q", r.URL.Query().Get("api-version"))
+		}
+		if r.URL.Path != "/models" {
+			t.Errorf("expected /models, got %s", r.URL.Path)
+		}
+		_, _ = fmt.Fprint(w, `{"data":[]}`)
+	}))
+	defer server.Close()
+
+	p := New("test", server.URL, nil, WithQueryParams(map[string]string{"api-version": "v1"}))
+	resp, err := p.Passthrough(context.Background(), "GET", "/models", nil, http.Header{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+}
+
 func TestBaseURLTrailingSlash(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/chat/completions" {

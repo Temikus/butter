@@ -67,6 +67,22 @@ providers:
   #   #   claude-3-5-sonnet-20241022: anthropic.claude-3-5-sonnet-20241022-v2:0
   #   # keys: []                          # Bedrock uses IAM auth, not API keys
 
+  # azureopenai:                                                              # Azure OpenAI
+  #   base_url: https://myresource.openai.azure.com/openai/deployments/gpt-4o # Include deployment path
+  #   api_version: "2024-10-21"                                               # Required
+  #   keys:
+  #     - key: "${AZURE_OPENAI_API_KEY}"
+  #       weight: 1
+  #   # For multiple deployments, create named entries and route models:
+  #   # azureopenai-gpt4o:
+  #   #   base_url: https://myresource.openai.azure.com/openai/deployments/gpt-4o
+  #   #   api_version: "2024-10-21"
+  #   #   keys: [...]
+  #   # azureopenai-o3:
+  #   #   base_url: https://myresource.openai.azure.com/openai/deployments/o3
+  #   #   api_version: "2024-10-21"
+  #   #   keys: [...]
+
 routing:
   default_provider: openrouter
 
@@ -108,11 +124,16 @@ plugins:
   ratelimit:
     requests_per_minute: 60  # token bucket rate limit
     per_ip: false            # false = global, true = per client IP
+    # per_app_key: false     # per-app-key rate limiting (requires app_keys.enabled)
+    # per_app_key_rpm: 120   # default RPM per key (falls back to requests_per_minute)
+    # app_key_limits:        # per-key RPM overrides
+    #   btr_abc123: 200
   requestlog:
     level: info              # debug | info | warn | error
     log_bodies: false        # log request/response bodies (truncated)
     body_max_bytes: 1024     # max body bytes to log
-  metrics: {}                # Prometheus metrics at GET /metrics (OTel-based)
+  metrics:                   # Prometheus metrics at GET /metrics (OTel-based)
+    # per_key_metrics: false # Add app_key label to all metrics (opt-in, high cardinality)
   # tracing:                 # Distributed tracing via OpenTelemetry (OTLP HTTP)
   #   endpoint: localhost:4318    # OTLP HTTP endpoint; omit to disable
   #   service_name: butter

@@ -18,6 +18,7 @@ import (
 type Plugin struct {
 	meterProvider *sdkmetric.MeterProvider
 	handler       http.Handler
+	perKeyMetrics bool
 
 	requestTotal    metric.Int64Counter
 	requestDuration metric.Float64Histogram
@@ -32,6 +33,12 @@ func New() *Plugin {
 func (p *Plugin) Name() string { return "metrics" }
 
 func (p *Plugin) Init(cfg map[string]any) error {
+	if cfg != nil {
+		if v, ok := cfg["per_key_metrics"].(bool); ok {
+			p.perKeyMetrics = v
+		}
+	}
+
 	exporter, err := prometheus.New()
 	if err != nil {
 		return err
@@ -90,12 +97,22 @@ func (p *Plugin) OnTrace(trace *plugin.RequestTrace) {
 		streaming = v
 	}
 
-	attrs := metric.WithAttributes(
+	attrList := []attribute.KeyValue{
 		attribute.String("provider", trace.Provider),
 		attribute.String("model", trace.Model),
 		attribute.Int("http.status_code", trace.StatusCode),
 		attribute.Bool("streaming", streaming),
-	)
+	}
+
+	if p.perKeyMetrics {
+		appKey := ""
+		if v, ok := trace.Metadata["app_key"].(string); ok {
+			appKey = v
+		}
+		attrList = append(attrList, attribute.String("app_key", appKey))
+	}
+
+	attrs := metric.WithAttributes(attrList...)
 
 	p.requestTotal.Add(ctx, 1, attrs)
 	p.requestDuration.Record(ctx, trace.Duration.Seconds(), attrs)

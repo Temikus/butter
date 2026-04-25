@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/temikus/butter/internal/version"
 	"github.com/temikus/butter/internal/provider"
 	"github.com/temikus/butter/internal/provider/anthropic"
+	"github.com/temikus/butter/internal/provider/azureopenai"
 	"github.com/temikus/butter/internal/provider/bedrock"
 	"github.com/temikus/butter/internal/provider/fireworks"
 	"github.com/temikus/butter/internal/provider/gemini"
@@ -107,7 +109,15 @@ func main() {
 		case "perplexity":
 			registry.Register(perplexity.New(provCfg.BaseURL, httpClient))
 		default:
-			logger.Warn("unknown provider, skipping", "provider", name)
+			if strings.HasPrefix(name, "azureopenai") {
+				if provCfg.APIVersion == "" {
+					logger.Error("azureopenai requires api_version in config", "provider", name)
+					os.Exit(1)
+				}
+				registry.Register(azureopenai.New(name, provCfg.BaseURL, provCfg.APIVersion, httpClient))
+			} else {
+				logger.Warn("unknown provider, skipping", "provider", name)
+			}
 		}
 	}
 

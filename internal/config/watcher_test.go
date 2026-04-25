@@ -50,8 +50,31 @@ func writeTempConfig(t *testing.T, content string) string {
 		t.Fatalf("write temp file: %v", err)
 	}
 	_ = f.Close()
+	// Pin mtime to a known past value so the filesystem metadata is stable
+	// before the watcher seeds its baseline. Without this, APFS may report
+	// slightly different mtimes on successive Stat calls for a newly-written
+	// file, causing the watcher to fire a spurious reload.
+	past := time.Now().Add(-5 * time.Second)
+	if err := os.Chtimes(f.Name(), past, past); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
 	t.Cleanup(func() { _ = os.Remove(f.Name()) })
 	return f.Name()
+}
+
+// atomicWriteFile writes content to path atomically via write-to-temp + rename.
+// os.WriteFile is NOT atomic — it truncates then writes, so a concurrent reader
+// (like the watcher) can see an empty file during the truncation window. Since
+// empty YAML parses as a valid default config, this causes spurious reloads.
+func atomicWriteFile(t *testing.T, path, content string) {
+	t.Helper()
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(content), 0644); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		t.Fatalf("rename temp file: %v", err)
+	}
 }
 
 func TestWatcherCallsOnChangeWhenFileModified(t *testing.T) {
@@ -64,14 +87,12 @@ func TestWatcherCallsOnChangeWhenFileModified(t *testing.T) {
 	w.Start()
 	defer w.Stop()
 
-	// Let the watcher seed its initial mtime.
-	time.Sleep(30 * time.Millisecond)
+	// Let the watcher run a few poll cycles so it has a stable baseline mtime.
+	time.Sleep(50 * time.Millisecond)
 
-	// Overwrite the file with different content and explicitly bump mtime
+	// Atomically overwrite the file with different content, then bump mtime
 	// to avoid false negatives on filesystems with 1-second mtime granularity.
-	if err := os.WriteFile(path, []byte(minimalConfigAlt), 0644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
+	atomicWriteFile(t, path, minimalConfigAlt)
 	future := time.Now().Add(2 * time.Second)
 	if err := os.Chtimes(path, future, future); err != nil {
 		t.Fatalf("chtimes: %v", err)
@@ -82,7 +103,7 @@ func TestWatcherCallsOnChangeWhenFileModified(t *testing.T) {
 		if cfg.Server.Address != ":8081" {
 			t.Errorf("expected reloaded address :8081, got %s", cfg.Server.Address)
 		}
-	case <-time.After(500 * time.Millisecond):
+	case <-time.After(2 * time.Second):
 		t.Error("timeout: onChange was not called after file modification")
 	}
 }
@@ -118,9 +139,7 @@ func TestWatcherSkipsReloadOnInvalidConfig(t *testing.T) {
 	time.Sleep(30 * time.Millisecond)
 
 	// Write deliberately malformed YAML (unclosed bracket).
-	if err := os.WriteFile(path, []byte("key: [unclosed bracket"), 0644); err != nil {
-		t.Fatalf("write invalid config: %v", err)
-	}
+	atomicWriteFile(t, path, "key: [unclosed bracket")
 
 	time.Sleep(80 * time.Millisecond)
 
@@ -142,9 +161,7 @@ func TestWatcherStopHaltsPolling(t *testing.T) {
 	w.Stop()
 
 	// Modify after Stop — onChange must not fire.
-	if err := os.WriteFile(path, []byte(minimalConfigAlt), 0644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
+	atomicWriteFile(t, path, minimalConfigAlt)
 	time.Sleep(80 * time.Millisecond)
 
 	if got := calls.Load(); got != 0 {

@@ -114,6 +114,112 @@ func TestOnTraceNoMetadataStreaming(t *testing.T) {
 	}
 }
 
+func TestOnTraceWithPerKeyMetrics(t *testing.T) {
+	p := New()
+	if err := p.Init(map[string]any{"per_key_metrics": true}); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	p.OnTrace(&plugin.RequestTrace{
+		Provider:   "openai",
+		Model:      "gpt-4o",
+		StatusCode: 200,
+		Duration:   100 * time.Millisecond,
+		Metadata:   map[string]any{"streaming": false, "app_key": "btr_abc123"},
+	})
+
+	rec := httptest.NewRecorder()
+	p.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
+
+	body := rec.Body.String()
+	if !strings.Contains(body, `app_key="btr_abc123"`) {
+		t.Error("expected app_key label with value btr_abc123")
+	}
+}
+
+func TestOnTracePerKeyMetricsNoAppKey(t *testing.T) {
+	p := New()
+	if err := p.Init(map[string]any{"per_key_metrics": true}); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	p.OnTrace(&plugin.RequestTrace{
+		Provider:   "openai",
+		Model:      "gpt-4o",
+		StatusCode: 200,
+		Duration:   100 * time.Millisecond,
+		Metadata:   map[string]any{"streaming": false},
+	})
+
+	rec := httptest.NewRecorder()
+	p.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
+
+	body := rec.Body.String()
+	if !strings.Contains(body, `app_key=""`) {
+		t.Error("expected app_key label with empty value when no app key present")
+	}
+}
+
+func TestOnTraceWithoutPerKeyMetrics(t *testing.T) {
+	p := New()
+	if err := p.Init(nil); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	p.OnTrace(&plugin.RequestTrace{
+		Provider:   "openai",
+		Model:      "gpt-4o",
+		StatusCode: 200,
+		Duration:   100 * time.Millisecond,
+		Metadata:   map[string]any{"streaming": false, "app_key": "btr_abc123"},
+	})
+
+	rec := httptest.NewRecorder()
+	p.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
+
+	body := rec.Body.String()
+	if strings.Contains(body, "app_key") {
+		t.Error("expected NO app_key label when per_key_metrics is disabled")
+	}
+}
+
+func TestOnTracePerKeyMetricsMultipleKeys(t *testing.T) {
+	p := New()
+	if err := p.Init(map[string]any{"per_key_metrics": true}); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	p.OnTrace(&plugin.RequestTrace{
+		Provider:   "openai",
+		Model:      "gpt-4o",
+		StatusCode: 200,
+		Duration:   100 * time.Millisecond,
+		Metadata:   map[string]any{"streaming": false, "app_key": "btr_key1"},
+	})
+	p.OnTrace(&plugin.RequestTrace{
+		Provider:   "openai",
+		Model:      "gpt-4o",
+		StatusCode: 200,
+		Duration:   50 * time.Millisecond,
+		Metadata:   map[string]any{"streaming": false, "app_key": "btr_key2"},
+	})
+
+	rec := httptest.NewRecorder()
+	p.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
+
+	body := rec.Body.String()
+	if !strings.Contains(body, `app_key="btr_key1"`) {
+		t.Error("expected app_key label with value btr_key1")
+	}
+	if !strings.Contains(body, `app_key="btr_key2"`) {
+		t.Error("expected app_key label with value btr_key2")
+	}
+}
+
 func TestCloseShutsMeterProvider(t *testing.T) {
 	p := New()
 	if err := p.Init(nil); err != nil {

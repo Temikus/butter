@@ -19,16 +19,45 @@ type Provider struct {
 	baseURL string
 	client  *http.Client
 	bufPool sync.Pool
+	opts    options
 }
 
-func New(name, baseURL string, client *http.Client) *Provider {
+// Compile-time check: Provider implements AuthHeaderSetter.
+var _ provider.AuthHeaderSetter = (*Provider)(nil)
+
+// options holds optional configuration for the provider.
+type options struct {
+	authHeaderName string            // custom header name for API key (no "Bearer " prefix)
+	queryParams    map[string]string // appended to every request URL
+}
+
+// Option configures the openaicompat provider.
+type Option func(*options)
+
+// WithAuthHeaderName sets a custom header name for API key authentication.
+// When set, the API key is sent as the raw value of this header (no "Bearer " prefix).
+func WithAuthHeaderName(name string) Option {
+	return func(o *options) { o.authHeaderName = name }
+}
+
+// WithQueryParams adds query parameters to every outgoing request URL.
+func WithQueryParams(params map[string]string) Option {
+	return func(o *options) { o.queryParams = params }
+}
+
+func New(name, baseURL string, client *http.Client, opts ...Option) *Provider {
 	if client == nil {
 		client = &http.Client{}
+	}
+	var o options
+	for _, opt := range opts {
+		opt(&o)
 	}
 	return &Provider{
 		name:    name,
 		baseURL: strings.TrimRight(baseURL, "/"),
 		client:  client,
+		opts:    o,
 		bufPool: sync.Pool{
 			New: func() any {
 				buf := make([]byte, 0, 4096)
@@ -148,6 +177,13 @@ func (p *Provider) Passthrough(ctx context.Context, method, path string, body io
 			req.Header.Add(k, v)
 		}
 	}
+	if len(p.opts.queryParams) > 0 {
+		q := req.URL.Query()
+		for k, v := range p.opts.queryParams {
+			q.Set(k, v)
+		}
+		req.URL.RawQuery = q.Encode()
+	}
 	return p.client.Do(req)
 }
 
@@ -159,9 +195,29 @@ func (p *Provider) buildRequest(ctx context.Context, method, path string, body [
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if apiKey != "" {
-		req.Header.Set("Authorization", "Bearer "+apiKey)
+		if p.opts.authHeaderName != "" {
+			req.Header.Set(p.opts.authHeaderName, apiKey)
+		} else {
+			req.Header.Set("Authorization", "Bearer "+apiKey)
+		}
+	}
+	if len(p.opts.queryParams) > 0 {
+		q := req.URL.Query()
+		for k, v := range p.opts.queryParams {
+			q.Set(k, v)
+		}
+		req.URL.RawQuery = q.Encode()
 	}
 	return req, nil
+}
+
+// SetAuthHeader implements provider.AuthHeaderSetter.
+func (p *Provider) SetAuthHeader(headers http.Header, apiKey string) {
+	if p.opts.authHeaderName != "" {
+		headers.Set(p.opts.authHeaderName, apiKey)
+	} else {
+		headers.Set("Authorization", "Bearer "+apiKey)
+	}
 }
 
 // sseStream implements provider.Stream for SSE responses.
