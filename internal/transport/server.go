@@ -29,6 +29,7 @@ type Server struct {
 	appKeyStore    *appkey.Store
 	appKeyHeader   string
 	appKeyRequire  bool
+	appKeyTTL      time.Duration // default TTL applied to vended keys (0 = none)
 }
 
 // Option configures optional Server behavior.
@@ -49,6 +50,17 @@ func WithAppKeyStore(store *appkey.Store, header string, requireKey bool) Option
 		s.appKeyStore = store
 		s.appKeyHeader = header
 		s.appKeyRequire = requireKey
+	}
+}
+
+// WithAppKeyDefaultTTL sets the default expiry applied to keys vended via
+// POST /v1/app-keys when the request body does not specify ttl_seconds.
+// A non-positive duration disables the default.
+func WithAppKeyDefaultTTL(ttl time.Duration) Option {
+	return func(s *Server) {
+		if ttl > 0 {
+			s.appKeyTTL = ttl
+		}
 	}
 }
 
@@ -90,6 +102,9 @@ func NewServer(cfg *config.ServerConfig, engine *proxy.Engine, logger *slog.Logg
 		mux.HandleFunc("POST /v1/app-keys", s.handleAppKeyCreate)
 		mux.HandleFunc("GET /v1/app-keys", s.handleAppKeyList)
 		mux.HandleFunc("GET /v1/app-keys/{key}/usage", s.handleAppKeyUsage)
+		mux.HandleFunc("DELETE /v1/app-keys/{key}", s.handleAppKeyRevoke)
+		mux.HandleFunc("PATCH /v1/app-keys/{key}", s.handleAppKeyUpdate)
+		mux.HandleFunc("POST /v1/app-keys/{key}/rotate", s.handleAppKeyRotate)
 		mux.HandleFunc("GET /v1/usage", s.handleUsageAggregate)
 	}
 
@@ -135,7 +150,10 @@ func (s *Server) withMiddleware(next http.Handler) http.Handler {
 
 // withAppKeyTracking extracts and validates the application key header,
 // rejects requests when require_key is set and the key is absent,
-// and injects the key into the request context.
+// and injects the key into the request context. When the presented key is
+// known to the store but inactive (revoked or expired), the request is
+// rejected with 401 regardless of requireKey — silently degrading a
+// presented-but-inactive key to anonymous would mask credential leaks.
 func (s *Server) withAppKeyTracking(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		key := r.Header.Get(s.appKeyHeader)
@@ -149,6 +167,14 @@ func (s *Server) withAppKeyTracking(next http.Handler) http.Handler {
 		}
 		if !appkey.IsValid(key) {
 			s.writeError(w, http.StatusBadRequest, "invalid app key format")
+			return
+		}
+		if rec := s.appKeyStore.Lookup(key); rec != nil && !s.appKeyStore.IsActive(rec) {
+			msg := "app key revoked"
+			if rec.RevokedAt.Load() == 0 {
+				msg = "app key expired"
+			}
+			s.writeError(w, http.StatusUnauthorized, msg)
 			return
 		}
 		r = r.WithContext(appkey.WithKey(r.Context(), key))
@@ -451,14 +477,44 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
 
 	if streaming {
 		flusher, ok := w.(http.Flusher)
-		if !ok {
+		if ok {
+			_, _ = io.Copy(&flushWriter{w: w, flusher: flusher}, resp.Body)
+		} else {
 			s.logger.Warn("streaming messages: ResponseWriter does not support Flush")
 			_, _ = io.Copy(w, resp.Body)
+		}
+
+		// Async usage tracking for streaming requests (token counts not extracted;
+		// matches /v1/chat/completions parity. TODO: tee message_delta/message_stop
+		// SSE events to capture cumulative input/output tokens).
+		if s.appKeyStore != nil {
+			if key, ok := appkey.FromContext(r.Context()); ok {
+				model := pctx.Model
+				store := s.appKeyStore
+				go store.RecordRequest(key, model, true, 0, 0)
+			}
+		}
+	} else {
+		// Buffer the upstream body so we can extract usage tokens after relay.
+		// 16 MB cap defends against runaway responses; logged on truncation.
+		const maxBody = 16 << 20
+		rawBody, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
+		if err != nil {
+			s.logger.Error("failed to buffer messages response", "error", err)
 			return
 		}
-		_, _ = io.Copy(&flushWriter{w: w, flusher: flusher}, resp.Body)
-	} else {
-		_, _ = io.Copy(w, resp.Body)
+		_, _ = w.Write(rawBody)
+
+		if s.appKeyStore != nil {
+			if key, ok := appkey.FromContext(r.Context()); ok {
+				model := pctx.Model
+				store := s.appKeyStore
+				go func() {
+					in, out := appkey.ExtractAnthropicUsage(rawBody)
+					store.RecordRequest(key, model, false, in, out)
+				}()
+			}
+		}
 	}
 }
 

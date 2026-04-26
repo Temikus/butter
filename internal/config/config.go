@@ -23,11 +23,12 @@ type Config struct {
 // AppKeysConfig controls the optional application-key tracking feature.
 // When Enabled is false (default) there is zero runtime overhead.
 type AppKeysConfig struct {
-	Enabled     bool                `yaml:"enabled"`
-	RequireKey  bool                `yaml:"require_key"`
-	Header      string              `yaml:"header"`
-	Keys        []AppKeyEntry       `yaml:"keys,omitempty"`
-	Persistence AppKeyPersistence   `yaml:"persistence,omitempty"`
+	Enabled     bool              `yaml:"enabled"`
+	RequireKey  bool              `yaml:"require_key"`
+	Header      string            `yaml:"header"`
+	DefaultTTL  time.Duration     `yaml:"default_ttl"` // applied to vended keys when ttl_seconds is omitted; 0 = no default
+	Keys        []AppKeyEntry     `yaml:"keys,omitempty"`
+	Persistence AppKeyPersistence `yaml:"persistence,omitempty"`
 }
 
 // AppKeyPersistence configures optional bbolt-backed durable storage for

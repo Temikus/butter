@@ -717,6 +717,155 @@ func TestAnthropicMessages_Streaming(t *testing.T) {
 	}
 }
 
+func TestAnthropicMessages_UsageTracking(t *testing.T) {
+	mockProvider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"id":"msg_42","type":"message","model":"claude-3","content":[{"type":"text","text":"Hi"}],"usage":{"input_tokens":11,"output_tokens":7}}`)
+	}))
+	defer mockProvider.Close()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{Address: ":0", ReadTimeout: 5 * time.Second, WriteTimeout: 30 * time.Second},
+		Providers: map[string]config.ProviderConfig{
+			"anthropic": {BaseURL: mockProvider.URL, CredentialMode: "passthrough"},
+		},
+		Routing: config.RoutingConfig{DefaultProvider: "anthropic"},
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	registry := provider.NewRegistry()
+	registry.Register(anthropic.New(mockProvider.URL, nil))
+
+	store := appkey.NewStore()
+	const key = "btr_msgsusage0000000000a"
+	store.Provision(key, "test")
+
+	engine := proxy.NewEngine(registry, cfg, logger, nil)
+	srv := transport.NewServer(&cfg.Server, engine, logger, nil,
+		transport.WithAppKeyStore(store, "X-Butter-App-Key", false))
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("POST", ts.URL+"/v1/messages", strings.NewReader(
+		`{"model":"claude-3","messages":[{"role":"user","content":"Hi"}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Butter-App-Key", key)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+	}
+	if !strings.Contains(string(body), "msg_42") {
+		t.Errorf("response body lost: %s", body)
+	}
+
+	// Wait for async usage recording.
+	deadline := time.Now().Add(time.Second)
+	var snap *appkey.UsageSnapshot
+	for time.Now().Before(deadline) {
+		snap = store.Lookup(key).Snapshot()
+		if snap.TotalRequests > 0 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if snap == nil || snap.TotalRequests != 1 {
+		t.Fatalf("expected total_requests=1, got snapshot=%+v", snap)
+	}
+	if snap.NonStreamRequests != 1 {
+		t.Errorf("expected non_stream_requests=1, got %d", snap.NonStreamRequests)
+	}
+	model, ok := snap.Models["claude-3"]
+	if !ok {
+		t.Fatalf("expected per-model entry for claude-3, got %v", snap.Models)
+	}
+	if model.PromptTokens != 11 {
+		t.Errorf("expected prompt_tokens=11 (input_tokens), got %d", model.PromptTokens)
+	}
+	if model.CompletionTokens != 7 {
+		t.Errorf("expected completion_tokens=7 (output_tokens), got %d", model.CompletionTokens)
+	}
+}
+
+func TestAnthropicMessages_StreamingUsageTracking(t *testing.T) {
+	mockProvider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		flusher, _ := w.(http.Flusher)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(200)
+		_, _ = fmt.Fprint(w, "event: message_start\ndata: {\"type\":\"message_start\"}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}))
+	defer mockProvider.Close()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{Address: ":0", ReadTimeout: 5 * time.Second, WriteTimeout: 30 * time.Second},
+		Providers: map[string]config.ProviderConfig{
+			"anthropic": {BaseURL: mockProvider.URL, CredentialMode: "passthrough"},
+		},
+		Routing: config.RoutingConfig{DefaultProvider: "anthropic"},
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	registry := provider.NewRegistry()
+	registry.Register(anthropic.New(mockProvider.URL, nil))
+
+	store := appkey.NewStore()
+	const key = "btr_msgsstream000000000z"
+	store.Provision(key, "test")
+
+	engine := proxy.NewEngine(registry, cfg, logger, nil)
+	srv := transport.NewServer(&cfg.Server, engine, logger, nil,
+		transport.WithAppKeyStore(store, "X-Butter-App-Key", false))
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("POST", ts.URL+"/v1/messages", strings.NewReader(
+		`{"model":"claude-3","stream":true,"messages":[{"role":"user","content":"Hi"}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Butter-App-Key", key)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	_, _ = io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	deadline := time.Now().Add(time.Second)
+	var snap *appkey.UsageSnapshot
+	for time.Now().Before(deadline) {
+		snap = store.Lookup(key).Snapshot()
+		if snap.TotalRequests > 0 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if snap == nil || snap.TotalRequests != 1 {
+		t.Fatalf("expected total_requests=1, got snapshot=%+v", snap)
+	}
+	if snap.StreamRequests != 1 {
+		t.Errorf("expected stream_requests=1, got %d", snap.StreamRequests)
+	}
+	model, ok := snap.Models["claude-3"]
+	if !ok {
+		t.Fatalf("expected per-model entry for claude-3, got %v", snap.Models)
+	}
+	if model.Requests != 1 {
+		t.Errorf("expected model.requests=1, got %d", model.Requests)
+	}
+	if model.PromptTokens != 0 || model.CompletionTokens != 0 {
+		t.Errorf("expected zero tokens for streaming (parity), got pt=%d ct=%d", model.PromptTokens, model.CompletionTokens)
+	}
+}
+
 func TestAnthropicMessages_ProviderError(t *testing.T) {
 	mockProvider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(429)

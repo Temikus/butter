@@ -25,6 +25,12 @@ type Persister struct {
 	done     chan struct{}
 	started  atomic.Bool
 	once     sync.Once
+
+	// writeMu serializes bbolt writes so that flush() (which snapshots-then-puts)
+	// and PersistKey (immediate single-key write fired by lifecycle mutations)
+	// never interleave such that a stale flush snapshot clobbers a fresher
+	// PersistKey write for the same key.
+	writeMu sync.Mutex
 }
 
 // NewPersister opens (or creates) the bbolt database at path and loads any
@@ -59,10 +65,10 @@ func NewPersister(path string, store *Store, interval time.Duration, logger *slo
 		return nil, err
 	}
 
-	// Register immediate-persist callback so Vend writes to bbolt before
-	// returning the key to the caller. Vend is a management API (not hot
-	// path), so the synchronous disk write is acceptable.
-	store.SetOnVend(p.PersistKey)
+	// Register immediate-persist callback so lifecycle mutations (Vend, Revoke,
+	// Rotate, SetExpiry) write to bbolt before returning. These are management
+	// operations (not request hot path), so the synchronous disk write is fine.
+	store.SetOnUpdate(p.PersistKey)
 
 	return p, nil
 }
@@ -134,9 +140,12 @@ func (p *Persister) Close() error {
 	return err
 }
 
-// PersistKey writes a single key snapshot to bbolt. Called synchronously
-// from Store.Vend to ensure newly created keys are durable immediately.
+// PersistKey writes a single key snapshot to bbolt. Called synchronously by
+// Store on Vend/Revoke/Rotate/SetExpiry to make lifecycle changes durable
+// immediately. Held under writeMu to serialize against periodic flush().
 func (p *Persister) PersistKey(snap *UsageSnapshot) {
+	p.writeMu.Lock()
+	defer p.writeMu.Unlock()
 	if err := p.db.Update(func(tx *bolt.Tx) error {
 		data, err := json.Marshal(snap)
 		if err != nil {
@@ -144,7 +153,7 @@ func (p *Persister) PersistKey(snap *UsageSnapshot) {
 		}
 		return tx.Bucket(bucketName).Put([]byte(snap.Key), data)
 	}); err != nil {
-		p.logger.Error("failed to persist vended app key",
+		p.logger.Error("failed to persist app key snapshot",
 			"key", snap.Key,
 			"error", err,
 		)
@@ -157,6 +166,8 @@ func (p *Persister) PersistKey(snap *UsageSnapshot) {
 // is added in the future, flush (or Delete itself) must also remove the key
 // from bbolt to prevent zombie keys reappearing on restart.
 func (p *Persister) flush() error {
+	p.writeMu.Lock()
+	defer p.writeMu.Unlock()
 	snapshots := p.store.List()
 	return p.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(bucketName)

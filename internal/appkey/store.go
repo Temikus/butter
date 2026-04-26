@@ -1,10 +1,15 @@
 package appkey
 
 import (
+	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
 )
+
+// ErrUnknownKey is returned by lifecycle operations on a key that has not
+// been provisioned or vended.
+var ErrUnknownKey = errors.New("app key not found")
 
 // ModelUsage tracks per-model counters for a single application key.
 type ModelUsage struct {
@@ -23,6 +28,8 @@ type UsageRecord struct {
 	StreamRequests    atomic.Int64
 	NonStreamRequests atomic.Int64
 	LastAccessedAt    atomic.Int64 // UnixNano; 0 means never accessed
+	ExpiresAt         atomic.Int64 // UnixNano; 0 means never expires
+	RevokedAt         atomic.Int64 // UnixNano; 0 means not revoked
 
 	mu         sync.RWMutex
 	modelUsage map[string]*ModelUsage
@@ -47,9 +54,9 @@ func (u *UsageRecord) getOrCreateModel(model string) *ModelUsage {
 // Store holds all provisioned application keys and their usage counters.
 // All methods are safe for concurrent use.
 type Store struct {
-	mu      sync.RWMutex
-	records map[string]*UsageRecord
-	onVend  func(*UsageSnapshot) // optional callback fired after Vend
+	mu       sync.RWMutex
+	records  map[string]*UsageRecord
+	onUpdate func(*UsageSnapshot) // fired after Vend/Revoke/Rotate/SetExpiry
 }
 
 // NewStore returns an empty Store.
@@ -57,12 +64,12 @@ func NewStore() *Store {
 	return &Store{records: make(map[string]*UsageRecord)}
 }
 
-// SetOnVend registers a callback invoked synchronously after a key is vended.
-// Intended for persistence layers to immediately write newly created keys.
-// Must be called during initialization, before the server starts accepting
-// traffic — the write to s.onVend is not protected by a lock.
-func (s *Store) SetOnVend(fn func(*UsageSnapshot)) {
-	s.onVend = fn
+// SetOnUpdate registers a callback invoked synchronously after any lifecycle
+// mutation: Vend, Revoke, Rotate, SetExpiry. Intended for persistence layers
+// to durably record the new state immediately. Must be called during
+// initialization — the write is not protected by a lock.
+func (s *Store) SetOnUpdate(fn func(*UsageSnapshot)) {
+	s.onUpdate = fn
 }
 
 // Provision registers a pre-configured key. Idempotent — calling with the
@@ -81,28 +88,118 @@ func (s *Store) Provision(key, label string) {
 }
 
 // Vend generates a new key, provisions it in the store, and returns the record.
-// If an onVend callback is registered, it is called synchronously after the
+// If ttl is non-zero, the key's ExpiresAt is set to CreatedAt + ttl.
+// If an onUpdate callback is registered, it is called synchronously after the
 // record is created (used by the persistence layer to write immediately).
-func (s *Store) Vend(label string) (*UsageRecord, error) {
+func (s *Store) Vend(label string, ttl time.Duration) (*UsageRecord, error) {
 	key, err := Generate()
 	if err != nil {
 		return nil, err
 	}
+	now := time.Now()
 	s.mu.Lock()
 	record := &UsageRecord{
 		Key:        key,
 		Label:      label,
-		CreatedAt:  time.Now(),
+		CreatedAt:  now,
 		modelUsage: make(map[string]*ModelUsage),
 	}
+	if ttl > 0 {
+		record.ExpiresAt.Store(now.Add(ttl).UnixNano())
+	}
 	s.records[key] = record
-	onVend := s.onVend
+	onUpdate := s.onUpdate
 	s.mu.Unlock()
 
-	if onVend != nil {
-		onVend(record.Snapshot())
+	if onUpdate != nil {
+		onUpdate(record.Snapshot())
 	}
 	return record, nil
+}
+
+// IsActive reports whether rec is currently usable: not revoked and not past
+// its expiry. Pure atomic read; no lock.
+func (s *Store) IsActive(rec *UsageRecord) bool {
+	if rec == nil {
+		return false
+	}
+	if rec.RevokedAt.Load() != 0 {
+		return false
+	}
+	if exp := rec.ExpiresAt.Load(); exp != 0 && time.Now().UnixNano() >= exp {
+		return false
+	}
+	return true
+}
+
+// Revoke marks key as revoked. Idempotent: if already revoked, the original
+// timestamp is preserved. Returns ErrUnknownKey if key is not provisioned.
+func (s *Store) Revoke(key string) error {
+	rec := s.Lookup(key)
+	if rec == nil {
+		return ErrUnknownKey
+	}
+	if rec.RevokedAt.CompareAndSwap(0, time.Now().UnixNano()) {
+		if s.onUpdate != nil {
+			s.onUpdate(rec.Snapshot())
+		}
+	}
+	return nil
+}
+
+// SetExpiry sets the expiry timestamp on key. A zero time clears expiry.
+// Past timestamps are accepted (the key becomes inactive on next Lookup-time
+// check). Returns ErrUnknownKey if key is not provisioned.
+func (s *Store) SetExpiry(key string, expiresAt time.Time) error {
+	rec := s.Lookup(key)
+	if rec == nil {
+		return ErrUnknownKey
+	}
+	if expiresAt.IsZero() {
+		rec.ExpiresAt.Store(0)
+	} else {
+		rec.ExpiresAt.Store(expiresAt.UnixNano())
+	}
+	if s.onUpdate != nil {
+		s.onUpdate(rec.Snapshot())
+	}
+	return nil
+}
+
+// Rotate vends a new key adopting the old key's label (or newLabel if non-empty)
+// and revokes the old key. Returns the snapshots for both keys, or ErrUnknownKey
+// if the old key is not provisioned. Rotating an already-revoked or expired key
+// succeeds (rotation is a recovery operation).
+//
+// TTL inheritance: if the old key has a future expiry, the new key inherits the
+// remaining duration so rotation does not silently extend the key's lifetime.
+// If the old key has no expiry or is already past expiry, the new key has no
+// expiry (operators can set one explicitly via SetExpiry).
+func (s *Store) Rotate(oldKey, newLabel string) (oldSnap, newSnap *UsageSnapshot, err error) {
+	old := s.Lookup(oldKey)
+	if old == nil {
+		return nil, nil, ErrUnknownKey
+	}
+	label := old.Label
+	if newLabel != "" {
+		label = newLabel
+	}
+	var ttl time.Duration
+	if exp := old.ExpiresAt.Load(); exp != 0 {
+		if remaining := time.Duration(exp - time.Now().UnixNano()); remaining > 0 {
+			ttl = remaining
+		}
+	}
+	newRec, err := s.Vend(label, ttl)
+	if err != nil {
+		return nil, nil, err
+	}
+	if old.RevokedAt.CompareAndSwap(0, time.Now().UnixNano()) {
+		if s.onUpdate != nil {
+			s.onUpdate(old.Snapshot())
+		}
+	}
+	return old.Snapshot(), newRec.Snapshot(), nil
 }
 
 // Lookup returns the UsageRecord for the given key, or nil if unknown.
@@ -158,8 +255,11 @@ func (s *Store) RecordRequest(key, model string, stream bool, promptTokens, comp
 type UsageSnapshot struct {
 	Key               string                    `json:"key"`
 	Label             string                    `json:"label"`
+	Status            string                    `json:"status"` // "active" | "revoked" | "expired"
 	CreatedAt         time.Time                 `json:"created_at"`
 	LastAccessedAt    *time.Time                `json:"last_accessed_at,omitempty"`
+	ExpiresAt         *time.Time                `json:"expires_at,omitempty"`
+	RevokedAt         *time.Time                `json:"revoked_at,omitempty"`
 	TotalRequests     int64                     `json:"total_requests"`
 	StreamRequests    int64                     `json:"stream_requests"`
 	NonStreamRequests int64                     `json:"non_stream_requests"`
@@ -190,6 +290,12 @@ func (s *Store) Restore(snap *UsageSnapshot) {
 		if snap.LastAccessedAt != nil {
 			rec.LastAccessedAt.Store(snap.LastAccessedAt.UnixNano())
 		}
+		if snap.ExpiresAt != nil {
+			rec.ExpiresAt.Store(snap.ExpiresAt.UnixNano())
+		}
+		if snap.RevokedAt != nil {
+			rec.RevokedAt.Store(snap.RevokedAt.UnixNano())
+		}
 		rec.TotalRequests.Store(snap.TotalRequests)
 		rec.StreamRequests.Store(snap.StreamRequests)
 		rec.NonStreamRequests.Store(snap.NonStreamRequests)
@@ -212,6 +318,12 @@ func (s *Store) Restore(snap *UsageSnapshot) {
 	}
 	if snap.LastAccessedAt != nil {
 		rec.LastAccessedAt.Store(snap.LastAccessedAt.UnixNano())
+	}
+	if snap.ExpiresAt != nil {
+		rec.ExpiresAt.Store(snap.ExpiresAt.UnixNano())
+	}
+	if snap.RevokedAt != nil {
+		rec.RevokedAt.Store(snap.RevokedAt.UnixNano())
 	}
 	rec.TotalRequests.Store(snap.TotalRequests)
 	rec.StreamRequests.Store(snap.StreamRequests)
@@ -251,5 +363,26 @@ func (u *UsageRecord) Snapshot() *UsageSnapshot {
 		t := time.Unix(0, ns)
 		snap.LastAccessedAt = &t
 	}
+	if ns := u.ExpiresAt.Load(); ns != 0 {
+		t := time.Unix(0, ns)
+		snap.ExpiresAt = &t
+	}
+	if ns := u.RevokedAt.Load(); ns != 0 {
+		t := time.Unix(0, ns)
+		snap.RevokedAt = &t
+	}
+	snap.Status = u.computeStatus()
 	return snap
+}
+
+// computeStatus returns "revoked", "expired", or "active" based on the
+// record's lifecycle atomics.
+func (u *UsageRecord) computeStatus() string {
+	if u.RevokedAt.Load() != 0 {
+		return "revoked"
+	}
+	if exp := u.ExpiresAt.Load(); exp != 0 && time.Now().UnixNano() >= exp {
+		return "expired"
+	}
+	return "active"
 }

@@ -203,9 +203,13 @@ func main() {
 		}
 
 		serverOpts = append(serverOpts, transport.WithAppKeyStore(store, cfg.AppKeys.Header, cfg.AppKeys.RequireKey))
+		if cfg.AppKeys.DefaultTTL > 0 {
+			serverOpts = append(serverOpts, transport.WithAppKeyDefaultTTL(cfg.AppKeys.DefaultTTL))
+		}
 		logger.Info("app key tracking enabled",
 			"require_key", cfg.AppKeys.RequireKey,
 			"header", cfg.AppKeys.Header,
+			"default_ttl", cfg.AppKeys.DefaultTTL,
 			"pre_provisioned", len(cfg.AppKeys.Keys),
 		)
 	}

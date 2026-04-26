@@ -433,8 +433,8 @@ func TestPersisterVendPersist(t *testing.T) {
 	}
 	p.Start()
 
-	// Vend a key — should be persisted immediately via onVend callback.
-	rec, err := store.Vend("vended-svc")
+	// Vend a key — should be persisted immediately via onUpdate callback.
+	rec, err := store.Vend("vended-svc", 0)
 	if err != nil {
 		t.Fatalf("Vend: %v", err)
 	}
@@ -465,4 +465,101 @@ func TestPersisterVendPersist(t *testing.T) {
 // openTestDB is a helper to open bbolt directly for test setup.
 func openTestDB(path string) (*bolt.DB, error) {
 	return bolt.Open(path, 0600, &bolt.Options{Timeout: 1 * time.Second})
+}
+
+func TestPersisterRevokeSurvives(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+	logger := newTestLogger()
+
+	store := NewStore()
+	p, err := NewPersister(dbPath, store, time.Hour, logger)
+	if err != nil {
+		t.Fatalf("NewPersister: %v", err)
+	}
+	p.Start()
+
+	rec, err := store.Vend("rotation-test", 0)
+	if err != nil {
+		t.Fatalf("Vend: %v", err)
+	}
+	if err := store.Revoke(rec.Key); err != nil {
+		t.Fatalf("Revoke: %v", err)
+	}
+	if err := p.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	store2 := NewStore()
+	p2, err := NewPersister(dbPath, store2, time.Hour, logger)
+	if err != nil {
+		t.Fatalf("NewPersister reload: %v", err)
+	}
+	defer func() { _ = p2.Close() }()
+
+	restored := store2.Lookup(rec.Key)
+	if restored == nil {
+		t.Fatal("vended+revoked key should be in bbolt")
+	}
+	if restored.RevokedAt.Load() == 0 {
+		t.Error("RevokedAt should be restored as non-zero")
+	}
+	if store2.IsActive(restored) {
+		t.Error("restored revoked key should be inactive")
+	}
+	if restored.Snapshot().Status != "revoked" {
+		t.Errorf("expected status=revoked after restore, got %q", restored.Snapshot().Status)
+	}
+}
+
+func TestPersisterFlushRevokeRace(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+	logger := newTestLogger()
+
+	store := NewStore()
+	p, err := NewPersister(dbPath, store, time.Hour, logger)
+	if err != nil {
+		t.Fatalf("NewPersister: %v", err)
+	}
+	p.Start()
+
+	rec, err := store.Vend("race-test", 0)
+	if err != nil {
+		t.Fatalf("Vend: %v", err)
+	}
+	for range 100 {
+		store.RecordRequest(rec.Key, "gpt-4o", false, 1, 1)
+	}
+
+	// Run flush() and Revoke() concurrently many times. The mutex around
+	// flush+PersistKey must ensure the final on-disk state is revoked, not
+	// stale-pre-revoke.
+	done := make(chan struct{})
+	go func() {
+		for range 20 {
+			_ = p.flush()
+		}
+		close(done)
+	}()
+	if err := store.Revoke(rec.Key); err != nil {
+		t.Fatalf("Revoke: %v", err)
+	}
+	<-done
+
+	if err := p.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	store2 := NewStore()
+	p2, err := NewPersister(dbPath, store2, time.Hour, logger)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	defer func() { _ = p2.Close() }()
+
+	restored := store2.Lookup(rec.Key)
+	if restored == nil || restored.RevokedAt.Load() == 0 {
+		t.Errorf("revoke must survive flush/revoke race; got rec=%+v", restored)
+	}
 }
