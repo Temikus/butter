@@ -57,6 +57,7 @@ type Store struct {
 	mu       sync.RWMutex
 	records  map[string]*UsageRecord
 	onUpdate func(*UsageSnapshot) // fired after Vend/Revoke/Rotate/SetExpiry
+	onDelete func(string)         // fired after Delete with the deleted key
 }
 
 // NewStore returns an empty Store.
@@ -70,6 +71,15 @@ func NewStore() *Store {
 // initialization — the write is not protected by a lock.
 func (s *Store) SetOnUpdate(fn func(*UsageSnapshot)) {
 	s.onUpdate = fn
+}
+
+// SetOnDelete registers a callback invoked synchronously after Delete with the
+// removed key. Intended for persistence layers to evict the key from durable
+// storage. Distinct from onUpdate so callers don't have to overload the
+// snapshot signal with a tombstone marker. Must be called during
+// initialization.
+func (s *Store) SetOnDelete(fn func(string)) {
+	s.onDelete = fn
 }
 
 // Provision registers a pre-configured key. Idempotent — calling with the
@@ -207,6 +217,28 @@ func (s *Store) Lookup(key string) *UsageRecord {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.records[key]
+}
+
+// Delete fully removes key and all of its usage history from the store.
+// Distinct from Revoke, which preserves the record. Returns ErrUnknownKey if
+// key is not provisioned. After Delete, in-flight async RecordRequest calls
+// for this key become no-ops via Lookup→nil — usage updates that race with
+// Delete are silently dropped, mirroring the existing "RecordRequest never
+// blocks the response path" guarantee.
+func (s *Store) Delete(key string) error {
+	s.mu.Lock()
+	if _, exists := s.records[key]; !exists {
+		s.mu.Unlock()
+		return ErrUnknownKey
+	}
+	delete(s.records, key)
+	onDelete := s.onDelete
+	s.mu.Unlock()
+
+	if onDelete != nil {
+		onDelete(key)
+	}
+	return nil
 }
 
 // List returns snapshots of all provisioned keys.

@@ -59,8 +59,8 @@ func (s *Server) handleAppKeyUsage(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(rec.Snapshot())
 }
 
-// handleAppKeyRevoke marks a key as revoked. Counters are preserved for audit;
-// hard delete is intentionally not supported.
+// handleAppKeyRevoke marks a key as revoked. Counters are preserved for audit.
+// For full removal of the key and its history, use POST /v1/app-keys/{key}/purge.
 // DELETE /v1/app-keys/{key}
 func (s *Server) handleAppKeyRevoke(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
@@ -70,6 +70,27 @@ func (s *Server) handleAppKeyRevoke(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.writeError(w, http.StatusInternalServerError, "failed to revoke key")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleAppKeyPurge fully removes a key and all of its usage history from
+// both the in-memory store and any persistent backing store. Distinct from
+// DELETE which only revokes.
+//
+// In-flight async RecordRequest calls for this key may still be queued when
+// purge fires; they become no-ops via Lookup→nil — usage updates that race
+// with purge are silently dropped.
+// POST /v1/app-keys/{key}/purge
+func (s *Server) handleAppKeyPurge(w http.ResponseWriter, r *http.Request) {
+	key := r.PathValue("key")
+	if err := s.appKeyStore.Delete(key); err != nil {
+		if errors.Is(err, appkey.ErrUnknownKey) {
+			s.writeError(w, http.StatusNotFound, fmt.Sprintf("app key %q not found", key))
+			return
+		}
+		s.writeError(w, http.StatusInternalServerError, "failed to purge key")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

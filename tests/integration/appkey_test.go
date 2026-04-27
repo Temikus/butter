@@ -237,6 +237,73 @@ func TestAppKey_UnknownKey_NotProvisioned(t *testing.T) {
 	}
 }
 
+func TestAppKey_Purge(t *testing.T) {
+	mock := mockOpenAI(t, nil)
+	cfg := newServerCfg().
+		withProvider("openai", mock.URL).
+		withDefault("openai").
+		withAppKeys(false)
+	butter := cfg.build(t)
+
+	// Vend a key and use it once.
+	vendResp, err := http.Post(butter.URL+"/v1/app-keys", "application/json", strings.NewReader(`{"label":"purge-svc"}`))
+	if err != nil {
+		t.Fatalf("vend: %v", err)
+	}
+	var snap appkey.UsageSnapshot
+	if err := json.NewDecoder(vendResp.Body).Decode(&snap); err != nil {
+		t.Fatalf("decoding vend: %v", err)
+	}
+	vendResp.Body.Close()
+
+	chatReq, _ := http.NewRequest(http.MethodPost, butter.URL+"/v1/chat/completions",
+		strings.NewReader(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`))
+	chatReq.Header.Set("Content-Type", "application/json")
+	chatReq.Header.Set("X-Butter-App-Key", snap.Key)
+	chatResp, err := http.DefaultClient.Do(chatReq)
+	if err != nil {
+		t.Fatalf("chat: %v", err)
+	}
+	chatResp.Body.Close()
+
+	// No need to wait for the chat's async RecordRequest — purge succeeds
+	// regardless, and any in-flight record landing after Delete becomes a
+	// silent no-op via Lookup→nil.
+
+	// Purge.
+	purgeReq, _ := http.NewRequest(http.MethodPost, butter.URL+"/v1/app-keys/"+snap.Key+"/purge", nil)
+	purgeResp, err := http.DefaultClient.Do(purgeReq)
+	if err != nil {
+		t.Fatalf("purge: %v", err)
+	}
+	defer purgeResp.Body.Close()
+	if purgeResp.StatusCode != http.StatusNoContent {
+		body, _ := io.ReadAll(purgeResp.Body)
+		t.Fatalf("expected 204 from purge, got %d: %s", purgeResp.StatusCode, body)
+	}
+
+	// Usage endpoint must now 404 — record is gone, not just inactive.
+	usageResp, err := http.Get(butter.URL + "/v1/app-keys/" + snap.Key + "/usage")
+	if err != nil {
+		t.Fatalf("GET usage: %v", err)
+	}
+	defer usageResp.Body.Close()
+	if usageResp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404 after purge, got %d", usageResp.StatusCode)
+	}
+
+	// Re-purging an unknown key returns 404.
+	rePurge, _ := http.NewRequest(http.MethodPost, butter.URL+"/v1/app-keys/"+snap.Key+"/purge", nil)
+	rePurgeResp, err := http.DefaultClient.Do(rePurge)
+	if err != nil {
+		t.Fatalf("re-purge: %v", err)
+	}
+	rePurgeResp.Body.Close()
+	if rePurgeResp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404 re-purging unknown key, got %d", rePurgeResp.StatusCode)
+	}
+}
+
 func TestAppKey_UsageNotFound(t *testing.T) {
 	mock := mockOpenAI(t, nil)
 	butter := newServerCfg().

@@ -467,6 +467,65 @@ func openTestDB(path string) (*bolt.DB, error) {
 	return bolt.Open(path, 0600, &bolt.Options{Timeout: 1 * time.Second})
 }
 
+func TestPersisterDeleteKey(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+	logger := newTestLogger()
+
+	// Phase 1: vend two keys, persist, then delete one.
+	store1 := NewStore()
+	p1, err := NewPersister(dbPath, store1, time.Hour, logger)
+	if err != nil {
+		t.Fatalf("NewPersister: %v", err)
+	}
+	keepRec, _ := store1.Vend("keep", 0)
+	purgeRec, _ := store1.Vend("purge", 0)
+	store1.RecordRequest(purgeRec.Key, "gpt-4o", false, 100, 50)
+
+	if err := store1.Delete(purgeRec.Key); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	// Periodic flush after the delete must not resurrect the key.
+	if err := p1.flush(); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
+	if err := p1.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	// Phase 2: reopen and confirm purged key is gone, kept key is intact.
+	store2 := NewStore()
+	p2, err := NewPersister(dbPath, store2, time.Hour, logger)
+	if err != nil {
+		t.Fatalf("NewPersister (reload): %v", err)
+	}
+	defer func() { _ = p2.Close() }()
+
+	if got := store2.Lookup(purgeRec.Key); got != nil {
+		t.Errorf("purged key %q resurrected on reload: %v", purgeRec.Key, got)
+	}
+	if got := store2.Lookup(keepRec.Key); got == nil {
+		t.Errorf("kept key %q lost on reload", keepRec.Key)
+	}
+}
+
+func TestPersisterDeleteUnknownKeyIsNoop(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+	logger := newTestLogger()
+
+	store := NewStore()
+	p, err := NewPersister(dbPath, store, time.Hour, logger)
+	if err != nil {
+		t.Fatalf("NewPersister: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	// Direct call (the Store would normally guard against this via ErrUnknownKey).
+	// Persister.DeleteKey must tolerate an absent key without erroring.
+	p.DeleteKey("btr_neverexisted00000000")
+}
+
 func TestPersisterRevokeSurvives(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "test.db")

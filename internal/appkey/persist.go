@@ -69,6 +69,9 @@ func NewPersister(path string, store *Store, interval time.Duration, logger *slo
 	// Rotate, SetExpiry) write to bbolt before returning. These are management
 	// operations (not request hot path), so the synchronous disk write is fine.
 	store.SetOnUpdate(p.PersistKey)
+	// Mirror Delete to bbolt eviction so a purged key cannot resurrect on
+	// restart from a stale flush snapshot.
+	store.SetOnDelete(p.DeleteKey)
 
 	return p, nil
 }
@@ -160,11 +163,28 @@ func (p *Persister) PersistKey(snap *UsageSnapshot) {
 	}
 }
 
+// DeleteKey removes a single key from bbolt. Called synchronously by Store.Delete
+// via the onDelete hook so that purges are durable immediately. Held under
+// writeMu to serialize against periodic flush() — without this, a flush already
+// in progress when Delete fires could re-Put the snapshot it had captured
+// before the in-memory record was removed.
+func (p *Persister) DeleteKey(key string) {
+	p.writeMu.Lock()
+	defer p.writeMu.Unlock()
+	if err := p.db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket(bucketName).Delete([]byte(key))
+	}); err != nil {
+		p.logger.Error("failed to delete app key from bbolt",
+			"key", key,
+			"error", err,
+		)
+	}
+}
+
 // flush writes all current snapshots to bbolt in a single transaction.
-// NOTE: flush only upserts keys present in the in-memory store. It does not
-// delete keys from bbolt that are absent from memory. If a Store.Delete method
-// is added in the future, flush (or Delete itself) must also remove the key
-// from bbolt to prevent zombie keys reappearing on restart.
+// flush only upserts keys present in the in-memory store; deletions are
+// handled separately by DeleteKey, which fires immediately on Store.Delete
+// via the onDelete hook.
 func (p *Persister) flush() error {
 	p.writeMu.Lock()
 	defer p.writeMu.Unlock()

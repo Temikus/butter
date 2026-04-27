@@ -328,6 +328,54 @@ func TestStoreRotateInheritsTTL(t *testing.T) {
 	}
 }
 
+func TestStoreDelete(t *testing.T) {
+	s := NewStore()
+	rec, _ := s.Vend("purge-me", 0)
+	s.RecordRequest(rec.Key, "gpt-4o", false, 100, 50)
+
+	if err := s.Delete(rec.Key); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if got := s.Lookup(rec.Key); got != nil {
+		t.Errorf("expected nil after Delete, got %v", got)
+	}
+	// RecordRequest after delete must be a silent no-op (no panic, no resurrection).
+	s.RecordRequest(rec.Key, "gpt-4o", false, 1, 1)
+	if got := s.Lookup(rec.Key); got != nil {
+		t.Error("RecordRequest must not resurrect a deleted key")
+	}
+}
+
+func TestStoreDeleteUnknown(t *testing.T) {
+	s := NewStore()
+	if err := s.Delete("btr_neverexisted00000000"); !errors.Is(err, ErrUnknownKey) {
+		t.Errorf("expected ErrUnknownKey, got %v", err)
+	}
+}
+
+func TestStoreDeleteFiresHook(t *testing.T) {
+	s := NewStore()
+	var deletedKeys []string
+	s.SetOnDelete(func(key string) {
+		deletedKeys = append(deletedKeys, key)
+	})
+
+	rec, _ := s.Vend("svc", 0)
+	if err := s.Delete(rec.Key); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if len(deletedKeys) != 1 || deletedKeys[0] != rec.Key {
+		t.Errorf("expected onDelete fired with %q once, got %v", rec.Key, deletedKeys)
+	}
+
+	// Unknown key must not fire the hook.
+	deletedKeys = deletedKeys[:0]
+	_ = s.Delete("btr_unknown00000000000a")
+	if len(deletedKeys) != 0 {
+		t.Errorf("onDelete should not fire on ErrUnknownKey, got %v", deletedKeys)
+	}
+}
+
 func TestStoreOnUpdateCallback(t *testing.T) {
 	s := NewStore()
 	var updates []string

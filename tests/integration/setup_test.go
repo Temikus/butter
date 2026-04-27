@@ -3,6 +3,7 @@
 package integration
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -235,6 +236,35 @@ func errorHandler(code int) http.HandlerFunc {
 		w.WriteHeader(code)
 		_, _ = fmt.Fprintf(w, `{"error":{"message":"mock error","code":%d}}`, code)
 	}
+}
+
+// waitForUsage polls /v1/app-keys/{key}/usage until pred returns true or the
+// timeout elapses, then returns the matching snapshot. Replaces fixed-sleep
+// gating on async RecordRequest goroutines, which is timing-dependent and
+// flake-prone under load.
+func waitForUsage(t *testing.T, butterURL, key string, pred func(*appkey.UsageSnapshot) bool) *appkey.UsageSnapshot {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	var lastSnap *appkey.UsageSnapshot
+	for time.Now().Before(deadline) {
+		resp, err := http.Get(butterURL + "/v1/app-keys/" + key + "/usage")
+		if err == nil && resp.StatusCode == http.StatusOK {
+			var snap appkey.UsageSnapshot
+			decodeErr := json.NewDecoder(resp.Body).Decode(&snap)
+			resp.Body.Close()
+			if decodeErr == nil {
+				lastSnap = &snap
+				if pred(&snap) {
+					return &snap
+				}
+			}
+		} else if resp != nil {
+			resp.Body.Close()
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("usage condition not satisfied within timeout; last snapshot: %+v", lastSnap)
+	return nil
 }
 
 // ─── Anthropic Mock Server ───────────────────────────────────────────────────

@@ -105,6 +105,7 @@ func NewServer(cfg *config.ServerConfig, engine *proxy.Engine, logger *slog.Logg
 		mux.HandleFunc("DELETE /v1/app-keys/{key}", s.handleAppKeyRevoke)
 		mux.HandleFunc("PATCH /v1/app-keys/{key}", s.handleAppKeyUpdate)
 		mux.HandleFunc("POST /v1/app-keys/{key}/rotate", s.handleAppKeyRotate)
+		mux.HandleFunc("POST /v1/app-keys/{key}/purge", s.handleAppKeyPurge)
 		mux.HandleFunc("GET /v1/usage", s.handleUsageAggregate)
 	}
 
@@ -476,22 +477,26 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(resp.StatusCode)
 
 	if streaming {
+		// Tee the SSE relay through a sink that parses message_start /
+		// message_delta events for cumulative input/output token counts.
+		// MultiWriter writes to flushWriter first so the client sees no
+		// added latency; the sink runs after each write off the hot path
+		// and never returns an error so it cannot break the relay.
+		sink := &appkey.AnthropicStreamUsageSink{}
 		flusher, ok := w.(http.Flusher)
 		if ok {
-			_, _ = io.Copy(&flushWriter{w: w, flusher: flusher}, resp.Body)
+			_, _ = io.Copy(io.MultiWriter(&flushWriter{w: w, flusher: flusher}, sink), resp.Body)
 		} else {
 			s.logger.Warn("streaming messages: ResponseWriter does not support Flush")
-			_, _ = io.Copy(w, resp.Body)
+			_, _ = io.Copy(io.MultiWriter(w, sink), resp.Body)
 		}
 
-		// Async usage tracking for streaming requests (token counts not extracted;
-		// matches /v1/chat/completions parity. TODO: tee message_delta/message_stop
-		// SSE events to capture cumulative input/output tokens).
 		if s.appKeyStore != nil {
 			if key, ok := appkey.FromContext(r.Context()); ok {
 				model := pctx.Model
 				store := s.appKeyStore
-				go store.RecordRequest(key, model, true, 0, 0)
+				in, out := sink.Totals()
+				go store.RecordRequest(key, model, true, in, out)
 			}
 		}
 	} else {
