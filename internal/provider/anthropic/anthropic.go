@@ -59,7 +59,6 @@ func (p *Provider) SupportsOperation(op provider.Operation) bool {
 // SetAuthHeader implements provider.AuthHeaderSetter for Anthropic's x-api-key auth.
 func (p *Provider) SetAuthHeader(headers http.Header, apiKey string) {
 	headers.Set("x-api-key", apiKey)
-	headers.Set("anthropic-version", anthropicVersion)
 }
 
 func (p *Provider) ChatCompletion(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {

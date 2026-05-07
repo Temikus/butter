@@ -668,8 +668,15 @@ func TestSetAuthHeader(t *testing.T) {
 	if h.Get("x-api-key") != "sk-ant-test" {
 		t.Errorf("expected x-api-key sk-ant-test, got %s", h.Get("x-api-key"))
 	}
-	if h.Get("anthropic-version") != anthropicVersion {
-		t.Errorf("expected anthropic-version %s, got %s", anthropicVersion, h.Get("anthropic-version"))
+}
+
+func TestSetAuthHeaderDoesNotSetVersion(t *testing.T) {
+	p := New("", nil)
+	h := http.Header{}
+	p.SetAuthHeader(h, "sk-ant-test")
+
+	if got := h.Get("anthropic-version"); got != "" {
+		t.Errorf("expected anthropic-version not set by SetAuthHeader, got %s", got)
 	}
 }
 
