@@ -874,6 +874,16 @@ type mockAnthropicNativeProvider struct {
 	handleFn func(ctx context.Context, body []byte, headers http.Header) (*http.Response, error)
 }
 
+// mockAnthropicNativeWithAuth extends mockAnthropicNativeProvider with AuthHeaderSetter,
+// mirroring the real Anthropic provider which sets x-api-key instead of Bearer.
+type mockAnthropicNativeWithAuth struct {
+	mockAnthropicNativeProvider
+}
+
+func (m *mockAnthropicNativeWithAuth) SetAuthHeader(headers http.Header, apiKey string) {
+	headers.Set("x-api-key", apiKey)
+}
+
 func (m *mockAnthropicNativeProvider) HandleAnthropicNative(ctx context.Context, body []byte, headers http.Header) (*http.Response, error) {
 	if m.handleFn != nil {
 		return m.handleFn(ctx, body, headers)
@@ -1032,5 +1042,56 @@ func TestDispatchAnthropicNative_CredentialPassthrough(t *testing.T) {
 
 	if got := capturedHeaders.Get("X-Api-Key"); got != "sk-client-key" {
 		t.Errorf("expected client key preserved, got %q", got)
+	}
+}
+
+func TestDispatchAnthropicNative_StoredCredentialPreservesClientHeaders(t *testing.T) {
+	var capturedHeaders http.Header
+	mock := &mockAnthropicNativeWithAuth{
+		mockAnthropicNativeProvider: mockAnthropicNativeProvider{
+			mockProvider: mockProvider{name: "anthropic"},
+			handleFn: func(_ context.Context, _ []byte, headers http.Header) (*http.Response, error) {
+				capturedHeaders = headers.Clone()
+				return &http.Response{
+					StatusCode: 200,
+					Header:     http.Header{"Content-Type": []string{"application/json"}},
+					Body:       io.NopCloser(strings.NewReader(`{"id":"msg_test"}`)),
+				}, nil
+			},
+		},
+	}
+
+	reg := provider.NewRegistry()
+	reg.Register(mock)
+
+	cfg := &config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"anthropic": {
+				Keys: []config.KeyConfig{{Key: "sk-stored", Weight: 1}},
+			},
+		},
+		Routing: config.RoutingConfig{DefaultProvider: "anthropic"},
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	engine := NewEngine(reg, cfg, logger, nil)
+
+	clientHeaders := make(http.Header)
+	clientHeaders.Set("anthropic-version", "2025-09-01")
+	clientHeaders.Set("anthropic-beta", "extended-thinking-2025-04-01")
+
+	_, err := engine.DispatchAnthropicNative(context.Background(),
+		[]byte(`{"model":"claude-3","messages":[]}`), clientHeaders)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got := capturedHeaders.Get("x-api-key"); got != "sk-stored" {
+		t.Errorf("expected stored key injected, got %q", got)
+	}
+	if got := capturedHeaders.Get("anthropic-version"); got != "2025-09-01" {
+		t.Errorf("expected client anthropic-version preserved, got %q", got)
+	}
+	if got := capturedHeaders.Get("anthropic-beta"); got != "extended-thinking-2025-04-01" {
+		t.Errorf("expected client anthropic-beta preserved, got %q", got)
 	}
 }
