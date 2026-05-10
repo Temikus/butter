@@ -2,6 +2,7 @@ package appkey
 
 import (
 	"errors"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -10,6 +11,41 @@ import (
 // ErrUnknownKey is returned by lifecycle operations on a key that has not
 // been provisioned or vended.
 var ErrUnknownKey = errors.New("app key not found")
+
+// KeyScopes restricts which models and providers an app key may access.
+// Nil or empty slices mean unrestricted.
+type KeyScopes struct {
+	AllowedModels    []string `json:"allowed_models,omitempty"`
+	AllowedProviders []string `json:"allowed_providers,omitempty"`
+}
+
+// IsModelAllowed returns true if the scope permits the given model.
+// Nil receiver or empty AllowedModels means all models are allowed.
+func (ks *KeyScopes) IsModelAllowed(model string) bool {
+	if ks == nil || len(ks.AllowedModels) == 0 {
+		return true
+	}
+	for _, m := range ks.AllowedModels {
+		if m == model {
+			return true
+		}
+	}
+	return false
+}
+
+// IsProviderAllowed returns true if the scope permits the given provider.
+// Nil receiver or empty AllowedProviders means all providers are allowed.
+func (ks *KeyScopes) IsProviderAllowed(prov string) bool {
+	if ks == nil || len(ks.AllowedProviders) == 0 {
+		return true
+	}
+	for _, p := range ks.AllowedProviders {
+		if p == prov {
+			return true
+		}
+	}
+	return false
+}
 
 // ModelUsage tracks per-model counters for a single application key.
 type ModelUsage struct {
@@ -31,9 +67,18 @@ type UsageRecord struct {
 	ExpiresAt         atomic.Int64 // UnixNano; 0 means never expires
 	RevokedAt         atomic.Int64 // UnixNano; 0 means not revoked
 
+	scopes atomic.Pointer[KeyScopes] // nil = unrestricted
+
 	mu         sync.RWMutex
 	modelUsage map[string]*ModelUsage
 }
+
+// GetScopes returns the key's scope restrictions, or nil if unrestricted.
+// Atomic pointer load — safe for concurrent use without locks.
+func (u *UsageRecord) GetScopes() *KeyScopes { return u.scopes.Load() }
+
+// SetScopes atomically replaces the key's scope restrictions.
+func (u *UsageRecord) SetScopes(s *KeyScopes) { u.scopes.Store(s) }
 
 func (u *UsageRecord) getOrCreateModel(model string) *ModelUsage {
 	u.mu.RLock()
@@ -58,11 +103,15 @@ type Store struct {
 	records  map[string]*UsageRecord
 	onUpdate func(*UsageSnapshot) // fired after Vend/Revoke/Rotate/SetExpiry
 	onDelete func(string)         // fired after Delete with the deleted key
+	logger   *slog.Logger
 }
 
-// NewStore returns an empty Store.
-func NewStore() *Store {
-	return &Store{records: make(map[string]*UsageRecord)}
+// NewStore returns an empty Store. If logger is nil, slog.Default() is used.
+func NewStore(logger *slog.Logger) *Store {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &Store{records: make(map[string]*UsageRecord), logger: logger}
 }
 
 // SetOnUpdate registers a callback invoked synchronously after any lifecycle
@@ -97,11 +146,19 @@ func (s *Store) Provision(key, label string) {
 	}
 }
 
+// VendOption configures optional fields on a newly vended key.
+type VendOption func(*UsageRecord)
+
+// WithScopes sets scope restrictions on a vended key.
+func WithScopes(scopes KeyScopes) VendOption {
+	return func(r *UsageRecord) { r.scopes.Store(&scopes) }
+}
+
 // Vend generates a new key, provisions it in the store, and returns the record.
 // If ttl is non-zero, the key's ExpiresAt is set to CreatedAt + ttl.
 // If an onUpdate callback is registered, it is called synchronously after the
 // record is created (used by the persistence layer to write immediately).
-func (s *Store) Vend(label string, ttl time.Duration) (*UsageRecord, error) {
+func (s *Store) Vend(label string, ttl time.Duration, opts ...VendOption) (*UsageRecord, error) {
 	key, err := Generate()
 	if err != nil {
 		return nil, err
@@ -117,6 +174,9 @@ func (s *Store) Vend(label string, ttl time.Duration) (*UsageRecord, error) {
 	if ttl > 0 {
 		record.ExpiresAt.Store(now.Add(ttl).UnixNano())
 	}
+	for _, opt := range opts {
+		opt(record)
+	}
 	s.records[key] = record
 	onUpdate := s.onUpdate
 	s.mu.Unlock()
@@ -124,6 +184,13 @@ func (s *Store) Vend(label string, ttl time.Duration) (*UsageRecord, error) {
 	if onUpdate != nil {
 		onUpdate(record.Snapshot())
 	}
+
+	logAttrs := []any{"event", "appkey.vend", "key", key, "label", label}
+	if ttl > 0 {
+		logAttrs = append(logAttrs, "expires_at", now.Add(ttl))
+	}
+	s.logger.Info("app key vended", logAttrs...)
+
 	return record, nil
 }
 
@@ -153,6 +220,7 @@ func (s *Store) Revoke(key string) error {
 		if s.onUpdate != nil {
 			s.onUpdate(rec.Snapshot())
 		}
+		s.logger.Info("app key revoked", "event", "appkey.revoke", "key", key)
 	}
 	return nil
 }
@@ -173,6 +241,13 @@ func (s *Store) SetExpiry(key string, expiresAt time.Time) error {
 	if s.onUpdate != nil {
 		s.onUpdate(rec.Snapshot())
 	}
+
+	if expiresAt.IsZero() {
+		s.logger.Info("app key expiry cleared", "event", "appkey.set_expiry", "key", key)
+	} else {
+		s.logger.Info("app key expiry updated", "event", "appkey.set_expiry", "key", key, "expires_at", expiresAt)
+	}
+
 	return nil
 }
 
@@ -200,7 +275,11 @@ func (s *Store) Rotate(oldKey, newLabel string) (oldSnap, newSnap *UsageSnapshot
 			ttl = remaining
 		}
 	}
-	newRec, err := s.Vend(label, ttl)
+	var opts []VendOption
+	if sc := old.GetScopes(); sc != nil {
+		opts = append(opts, WithScopes(*sc))
+	}
+	newRec, err := s.Vend(label, ttl, opts...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -209,7 +288,35 @@ func (s *Store) Rotate(oldKey, newLabel string) (oldSnap, newSnap *UsageSnapshot
 			s.onUpdate(old.Snapshot())
 		}
 	}
+
+	s.logger.Info("app key rotated", "event", "appkey.rotate", "old_key", oldKey, "new_key", newRec.Key, "label", label)
+
 	return old.Snapshot(), newRec.Snapshot(), nil
+}
+
+// UpdateScopes atomically replaces the scope restrictions on key. Passing nil
+// clears all restrictions (unrestricted). Returns ErrUnknownKey if key is not
+// provisioned. Fires onUpdate for persistence.
+func (s *Store) UpdateScopes(key string, scopes *KeyScopes) error {
+	rec := s.Lookup(key)
+	if rec == nil {
+		return ErrUnknownKey
+	}
+	rec.scopes.Store(scopes)
+	if s.onUpdate != nil {
+		s.onUpdate(rec.Snapshot())
+	}
+	if scopes != nil {
+		s.logger.Info("app key scopes updated",
+			"event", "appkey.set_scopes",
+			"key", key,
+			"allowed_models", scopes.AllowedModels,
+			"allowed_providers", scopes.AllowedProviders,
+		)
+	} else {
+		s.logger.Info("app key scopes cleared", "event", "appkey.set_scopes", "key", key)
+	}
+	return nil
 }
 
 // Lookup returns the UsageRecord for the given key, or nil if unknown.
@@ -238,6 +345,9 @@ func (s *Store) Delete(key string) error {
 	if onDelete != nil {
 		onDelete(key)
 	}
+
+	s.logger.Info("app key purged", "event", "appkey.delete", "key", key)
+
 	return nil
 }
 
@@ -296,6 +406,7 @@ type UsageSnapshot struct {
 	StreamRequests    int64                     `json:"stream_requests"`
 	NonStreamRequests int64                     `json:"non_stream_requests"`
 	Models            map[string]*ModelSnapshot `json:"models,omitempty"`
+	Scopes            *KeyScopes                `json:"scopes,omitempty"`
 }
 
 // ModelSnapshot is a JSON-serializable view of a ModelUsage.
@@ -331,6 +442,9 @@ func (s *Store) Restore(snap *UsageSnapshot) {
 		rec.TotalRequests.Store(snap.TotalRequests)
 		rec.StreamRequests.Store(snap.StreamRequests)
 		rec.NonStreamRequests.Store(snap.NonStreamRequests)
+		if snap.Scopes != nil {
+			rec.scopes.Store(snap.Scopes)
+		}
 		rec.mu.Lock()
 		for model, ms := range snap.Models {
 			mu := &ModelUsage{}
@@ -356,6 +470,9 @@ func (s *Store) Restore(snap *UsageSnapshot) {
 	}
 	if snap.RevokedAt != nil {
 		rec.RevokedAt.Store(snap.RevokedAt.UnixNano())
+	}
+	if snap.Scopes != nil {
+		rec.scopes.Store(snap.Scopes)
 	}
 	rec.TotalRequests.Store(snap.TotalRequests)
 	rec.StreamRequests.Store(snap.StreamRequests)
@@ -402,6 +519,12 @@ func (u *UsageRecord) Snapshot() *UsageSnapshot {
 	if ns := u.RevokedAt.Load(); ns != 0 {
 		t := time.Unix(0, ns)
 		snap.RevokedAt = &t
+	}
+	if sc := u.scopes.Load(); sc != nil {
+		snap.Scopes = &KeyScopes{
+			AllowedModels:    sc.AllowedModels,
+			AllowedProviders: sc.AllowedProviders,
+		}
 	}
 	snap.Status = u.computeStatus()
 	return snap

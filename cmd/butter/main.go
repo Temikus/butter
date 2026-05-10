@@ -173,7 +173,7 @@ func main() {
 		serverOpts = append(serverOpts, transport.WithMetricsHandler(metricsPlugin.Handler()))
 	}
 	if cfg.AppKeys.Enabled {
-		store := appkey.NewStore()
+		store := appkey.NewStore(logger)
 
 		// Provision config-defined keys first so their labels are in the store
 		// before bbolt loads. Restore merges persisted counters into existing
@@ -181,6 +181,14 @@ func main() {
 		// labels, bbolt is authoritative for counters).
 		for _, entry := range cfg.AppKeys.Keys {
 			store.Provision(entry.Key, entry.Label)
+			if len(entry.AllowedModels) > 0 || len(entry.AllowedProviders) > 0 {
+				if rec := store.Lookup(entry.Key); rec != nil {
+					rec.SetScopes(&appkey.KeyScopes{
+						AllowedModels:    entry.AllowedModels,
+						AllowedProviders: entry.AllowedProviders,
+					})
+				}
+			}
 		}
 
 		if cfg.AppKeys.Persistence.Enabled {

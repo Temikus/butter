@@ -43,8 +43,10 @@ type AppKeyPersistence struct {
 
 // AppKeyEntry represents a pre-provisioned application key in config.
 type AppKeyEntry struct {
-	Key   string `yaml:"key"`
-	Label string `yaml:"label,omitempty"`
+	Key              string   `yaml:"key"`
+	Label            string   `yaml:"label,omitempty"`
+	AllowedModels    []string `yaml:"allowed_models,omitempty"`
+	AllowedProviders []string `yaml:"allowed_providers,omitempty"`
 }
 
 // WASMPluginConfig holds the configuration for a single WASM plugin.

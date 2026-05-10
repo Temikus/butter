@@ -1,13 +1,17 @@
 package appkey
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
+	"io"
+	"log/slog"
 	"testing"
 	"time"
 )
 
 func TestStoreProvisionAndLookup(t *testing.T) {
-	s := NewStore()
+	s := NewStore(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	s.Provision("btr_testkey00000000000", "my-service")
 
 	rec := s.Lookup("btr_testkey00000000000")
@@ -23,7 +27,7 @@ func TestStoreProvisionAndLookup(t *testing.T) {
 }
 
 func TestStoreProvisionIdempotent(t *testing.T) {
-	s := NewStore()
+	s := NewStore(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	s.Provision("btr_testkey00000000000", "first")
 	s.Provision("btr_testkey00000000000", "second") // should not overwrite
 
@@ -34,14 +38,14 @@ func TestStoreProvisionIdempotent(t *testing.T) {
 }
 
 func TestStoreLookupUnknown(t *testing.T) {
-	s := NewStore()
+	s := NewStore(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if got := s.Lookup("btr_notprovisioned000"); got != nil {
 		t.Errorf("expected nil for unknown key, got %v", got)
 	}
 }
 
 func TestStoreVend(t *testing.T) {
-	s := NewStore()
+	s := NewStore(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	rec, err := s.Vend("test-label", 0)
 	if err != nil {
 		t.Fatalf("Vend() error: %v", err)
@@ -60,7 +64,7 @@ func TestStoreVend(t *testing.T) {
 }
 
 func TestStoreRecordRequest(t *testing.T) {
-	s := NewStore()
+	s := NewStore(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	s.Provision("btr_testkey00000000000", "svc")
 
 	s.RecordRequest("btr_testkey00000000000", "gpt-4o", false, 100, 50)
@@ -93,7 +97,7 @@ func TestStoreRecordRequest(t *testing.T) {
 }
 
 func TestStoreRecordRequestSetsLastAccessed(t *testing.T) {
-	s := NewStore()
+	s := NewStore(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	s.Provision("btr_testkey00000000000", "svc")
 
 	// Before any request, LastAccessedAt should be nil.
@@ -111,13 +115,13 @@ func TestStoreRecordRequestSetsLastAccessed(t *testing.T) {
 }
 
 func TestStoreRecordRequestUnknownKey(t *testing.T) {
-	s := NewStore()
+	s := NewStore(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	// Should not panic on unknown key.
 	s.RecordRequest("btr_unknown00000000000", "gpt-4o", false, 10, 5)
 }
 
 func TestStoreList(t *testing.T) {
-	s := NewStore()
+	s := NewStore(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	s.Provision("btr_testkey00000000001", "svc-1")
 	s.Provision("btr_testkey00000000002", "svc-2")
 
@@ -128,7 +132,7 @@ func TestStoreList(t *testing.T) {
 }
 
 func TestStoreVendWithTTL(t *testing.T) {
-	s := NewStore()
+	s := NewStore(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	rec, err := s.Vend("ephemeral", time.Hour)
 	if err != nil {
 		t.Fatalf("Vend: %v", err)
@@ -146,7 +150,7 @@ func TestStoreVendWithTTL(t *testing.T) {
 }
 
 func TestStoreIsActive(t *testing.T) {
-	s := NewStore()
+	s := NewStore(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	s.Provision("btr_active000000000000a", "svc")
 	if rec := s.Lookup("btr_active000000000000a"); !s.IsActive(rec) {
 		t.Error("fresh key should be active")
@@ -168,7 +172,7 @@ func TestStoreIsActive(t *testing.T) {
 }
 
 func TestStoreRevoke(t *testing.T) {
-	s := NewStore()
+	s := NewStore(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	s.Provision("btr_revoke0000000000000", "svc")
 
 	if err := s.Revoke("btr_revoke0000000000000"); err != nil {
@@ -198,7 +202,7 @@ func TestStoreRevoke(t *testing.T) {
 }
 
 func TestStoreSetExpiry(t *testing.T) {
-	s := NewStore()
+	s := NewStore(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	s.Provision("btr_setexp00000000000a", "svc")
 
 	future := time.Now().Add(time.Hour)
@@ -235,7 +239,7 @@ func TestStoreSetExpiry(t *testing.T) {
 }
 
 func TestStoreRotate(t *testing.T) {
-	s := NewStore()
+	s := NewStore(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	s.Provision("btr_rotate0000000000000", "production")
 	s.RecordRequest("btr_rotate0000000000000", "gpt-4o", false, 10, 5)
 
@@ -285,7 +289,7 @@ func TestStoreRotate(t *testing.T) {
 }
 
 func TestStoreRotateInheritsTTL(t *testing.T) {
-	s := NewStore()
+	s := NewStore(slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	// Old key with future expiry → new key inherits remaining duration.
 	rec, _ := s.Vend("with-ttl", time.Hour)
@@ -329,7 +333,7 @@ func TestStoreRotateInheritsTTL(t *testing.T) {
 }
 
 func TestStoreDelete(t *testing.T) {
-	s := NewStore()
+	s := NewStore(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	rec, _ := s.Vend("purge-me", 0)
 	s.RecordRequest(rec.Key, "gpt-4o", false, 100, 50)
 
@@ -347,14 +351,14 @@ func TestStoreDelete(t *testing.T) {
 }
 
 func TestStoreDeleteUnknown(t *testing.T) {
-	s := NewStore()
+	s := NewStore(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err := s.Delete("btr_neverexisted00000000"); !errors.Is(err, ErrUnknownKey) {
 		t.Errorf("expected ErrUnknownKey, got %v", err)
 	}
 }
 
 func TestStoreDeleteFiresHook(t *testing.T) {
-	s := NewStore()
+	s := NewStore(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	var deletedKeys []string
 	s.SetOnDelete(func(key string) {
 		deletedKeys = append(deletedKeys, key)
@@ -377,7 +381,7 @@ func TestStoreDeleteFiresHook(t *testing.T) {
 }
 
 func TestStoreOnUpdateCallback(t *testing.T) {
-	s := NewStore()
+	s := NewStore(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	var updates []string
 	s.SetOnUpdate(func(snap *UsageSnapshot) {
 		updates = append(updates, snap.Status)
@@ -404,7 +408,7 @@ func TestStoreOnUpdateCallback(t *testing.T) {
 }
 
 func TestStoreConcurrent(t *testing.T) {
-	s := NewStore()
+	s := NewStore(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	s.Provision("btr_testkey00000000000", "svc")
 
 	done := make(chan struct{})
@@ -421,5 +425,218 @@ func TestStoreConcurrent(t *testing.T) {
 	snap := s.Lookup("btr_testkey00000000000").Snapshot()
 	if snap.TotalRequests != 50 {
 		t.Errorf("expected 50, got %d", snap.TotalRequests)
+	}
+}
+
+func TestAuditLog(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, nil))
+	s := NewStore(logger)
+
+	rec, _ := s.Vend("audit-test", time.Hour)
+	_ = s.Revoke(rec.Key)
+	_ = s.SetExpiry(rec.Key, time.Now().Add(2*time.Hour))
+	_ = s.SetExpiry(rec.Key, time.Time{})
+	_, _, _ = s.Rotate(rec.Key, "rotated")
+	// Rotate produces: vend (for new key) + rotate (correlation)
+	// Find the new key from the store list.
+	var newKey string
+	for _, snap := range s.List() {
+		if snap.Key != rec.Key && snap.Status == "active" {
+			newKey = snap.Key
+		}
+	}
+	_ = s.Delete(newKey)
+
+	// Parse log lines and collect events.
+	type logEntry struct {
+		Event string `json:"event"`
+		Key   string `json:"key"`
+	}
+	var events []logEntry
+	for _, line := range bytes.Split(buf.Bytes(), []byte("\n")) {
+		if len(line) == 0 {
+			continue
+		}
+		var entry logEntry
+		if err := json.Unmarshal(line, &entry); err != nil {
+			t.Fatalf("failed to parse log line: %v\n%s", err, line)
+		}
+		events = append(events, entry)
+	}
+
+	expected := []string{
+		"appkey.vend",       // initial Vend
+		"appkey.revoke",     // Revoke
+		"appkey.set_expiry", // SetExpiry (future)
+		"appkey.set_expiry", // SetExpiry (clear)
+		"appkey.vend",       // Rotate's internal Vend
+		"appkey.rotate",     // Rotate correlation
+		"appkey.delete",     // Delete
+	}
+	if len(events) != len(expected) {
+		t.Fatalf("expected %d audit events, got %d: %+v", len(expected), len(events), events)
+	}
+	for i, want := range expected {
+		if events[i].Event != want {
+			t.Errorf("event[%d]: got %q, want %q", i, events[i].Event, want)
+		}
+	}
+}
+
+func TestScopeHelpers(t *testing.T) {
+	// nil = unrestricted
+	var nilScopes *KeyScopes
+	if !nilScopes.IsModelAllowed("gpt-4o") {
+		t.Error("nil scope should allow all models")
+	}
+	if !nilScopes.IsProviderAllowed("openai") {
+		t.Error("nil scope should allow all providers")
+	}
+
+	// empty slices = unrestricted
+	empty := &KeyScopes{}
+	if !empty.IsModelAllowed("gpt-4o") {
+		t.Error("empty scope should allow all models")
+	}
+	if !empty.IsProviderAllowed("openai") {
+		t.Error("empty scope should allow all providers")
+	}
+
+	// restricted
+	scoped := &KeyScopes{
+		AllowedModels:    []string{"gpt-4o", "gpt-4o-mini"},
+		AllowedProviders: []string{"openai"},
+	}
+	if !scoped.IsModelAllowed("gpt-4o") {
+		t.Error("gpt-4o should be allowed")
+	}
+	if scoped.IsModelAllowed("claude-3") {
+		t.Error("claude-3 should be denied")
+	}
+	if !scoped.IsProviderAllowed("openai") {
+		t.Error("openai should be allowed")
+	}
+	if scoped.IsProviderAllowed("anthropic") {
+		t.Error("anthropic should be denied")
+	}
+}
+
+func TestVendWithScopes(t *testing.T) {
+	s := NewStore(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	scopes := KeyScopes{
+		AllowedModels:    []string{"gpt-4o"},
+		AllowedProviders: []string{"openai"},
+	}
+	rec, err := s.Vend("scoped", 0, WithScopes(scopes))
+	if err != nil {
+		t.Fatalf("Vend: %v", err)
+	}
+	got := rec.GetScopes()
+	if got == nil {
+		t.Fatal("expected scopes to be set")
+	}
+	if len(got.AllowedModels) != 1 || got.AllowedModels[0] != "gpt-4o" {
+		t.Errorf("unexpected allowed_models: %v", got.AllowedModels)
+	}
+
+	// Verify snapshot includes scopes.
+	snap := rec.Snapshot()
+	if snap.Scopes == nil {
+		t.Fatal("snapshot should include scopes")
+	}
+	if len(snap.Scopes.AllowedProviders) != 1 || snap.Scopes.AllowedProviders[0] != "openai" {
+		t.Errorf("unexpected allowed_providers in snapshot: %v", snap.Scopes.AllowedProviders)
+	}
+}
+
+func TestVendWithoutScopes(t *testing.T) {
+	s := NewStore(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	rec, _ := s.Vend("unscoped", 0)
+	if got := rec.GetScopes(); got != nil {
+		t.Errorf("expected nil scopes, got %v", got)
+	}
+	snap := rec.Snapshot()
+	if snap.Scopes != nil {
+		t.Errorf("expected nil scopes in snapshot, got %v", snap.Scopes)
+	}
+}
+
+func TestUpdateScopes(t *testing.T) {
+	s := NewStore(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	var updates int
+	s.SetOnUpdate(func(_ *UsageSnapshot) { updates++ })
+
+	rec, _ := s.Vend("svc", 0)
+	updates = 0 // reset after Vend's onUpdate
+
+	scopes := &KeyScopes{AllowedModels: []string{"gpt-4o"}}
+	if err := s.UpdateScopes(rec.Key, scopes); err != nil {
+		t.Fatalf("UpdateScopes: %v", err)
+	}
+	if updates != 1 {
+		t.Errorf("expected 1 onUpdate, got %d", updates)
+	}
+	if got := rec.GetScopes(); got == nil || len(got.AllowedModels) != 1 {
+		t.Errorf("scopes not set on record")
+	}
+
+	// Clear scopes.
+	if err := s.UpdateScopes(rec.Key, nil); err != nil {
+		t.Fatalf("UpdateScopes (clear): %v", err)
+	}
+	if got := rec.GetScopes(); got != nil {
+		t.Errorf("expected nil after clearing scopes, got %v", got)
+	}
+
+	// Unknown key.
+	if err := s.UpdateScopes("btr_unknown0000000000a", scopes); !errors.Is(err, ErrUnknownKey) {
+		t.Errorf("expected ErrUnknownKey, got %v", err)
+	}
+}
+
+func TestRotateInheritsScopes(t *testing.T) {
+	s := NewStore(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	scopes := KeyScopes{AllowedModels: []string{"gpt-4o"}, AllowedProviders: []string{"openai"}}
+	rec, _ := s.Vend("scoped", 0, WithScopes(scopes))
+
+	_, newSnap, err := s.Rotate(rec.Key, "")
+	if err != nil {
+		t.Fatalf("Rotate: %v", err)
+	}
+	if newSnap.Scopes == nil {
+		t.Fatal("rotated key should inherit scopes")
+	}
+	if len(newSnap.Scopes.AllowedModels) != 1 || newSnap.Scopes.AllowedModels[0] != "gpt-4o" {
+		t.Errorf("unexpected inherited scopes: %v", newSnap.Scopes)
+	}
+}
+
+func TestRestoreWithScopes(t *testing.T) {
+	s := NewStore(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	snap := &UsageSnapshot{
+		Key:       "btr_scopedrestore00000",
+		Label:     "scoped-svc",
+		CreatedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+		Scopes: &KeyScopes{
+			AllowedModels:    []string{"gpt-4o"},
+			AllowedProviders: []string{"openai", "openrouter"},
+		},
+	}
+	s.Restore(snap)
+
+	rec := s.Lookup("btr_scopedrestore00000")
+	if rec == nil {
+		t.Fatal("expected restored record")
+	}
+	got := rec.GetScopes()
+	if got == nil {
+		t.Fatal("expected scopes on restored record")
+	}
+	if len(got.AllowedModels) != 1 || got.AllowedModels[0] != "gpt-4o" {
+		t.Errorf("unexpected restored models: %v", got.AllowedModels)
+	}
+	if len(got.AllowedProviders) != 2 {
+		t.Errorf("unexpected restored providers: %v", got.AllowedProviders)
 	}
 }

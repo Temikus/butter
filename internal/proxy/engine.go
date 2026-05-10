@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/temikus/butter/internal/appkey"
 	"github.com/temikus/butter/internal/cache"
 	"github.com/temikus/butter/internal/config"
 	"github.com/temikus/butter/internal/plugin"
@@ -75,6 +76,9 @@ func (e *Engine) Dispatch(ctx context.Context, rawBody []byte) (*provider.ChatRe
 	st := e.st.Load()
 	req, providerNames, err := e.parseAndRoute(st, rawBody)
 	if err != nil {
+		return nil, err
+	}
+	if providerNames, err = e.enforceScopes(ctx, req.Model, providerNames); err != nil {
 		return nil, err
 	}
 
@@ -197,6 +201,9 @@ func (e *Engine) DispatchStream(ctx context.Context, rawBody []byte) (provider.S
 	st := e.st.Load()
 	req, providerNames, err := e.parseAndRoute(st, rawBody)
 	if err != nil {
+		return nil, err
+	}
+	if providerNames, err = e.enforceScopes(ctx, req.Model, providerNames); err != nil {
 		return nil, err
 	}
 
@@ -444,6 +451,10 @@ func (e *Engine) DispatchEmbeddings(ctx context.Context, rawBody []byte) (*provi
 	if len(providerNames) == 0 {
 		return nil, fmt.Errorf("no provider configured for model %q", partial.Model)
 	}
+	providerNames, scopeErr := e.enforceScopes(ctx, partial.Model, providerNames)
+	if scopeErr != nil {
+		return nil, scopeErr
+	}
 
 	failover := st.cfg.Routing.Failover
 	var lastErr error
@@ -540,6 +551,10 @@ func (e *Engine) DispatchAnthropicNative(ctx context.Context, rawBody []byte, cl
 	if len(providerNames) == 0 {
 		return nil, fmt.Errorf("no provider configured for model %q", partial.Model)
 	}
+	providerNames, scopeErr := e.enforceScopes(ctx, partial.Model, providerNames)
+	if scopeErr != nil {
+		return nil, scopeErr
+	}
 
 	// Populate request context for tracing if available.
 	pctx := plugin.GetRequestContext(ctx)
@@ -625,6 +640,38 @@ func (e *Engine) resolveProviders(st *engineState, model, explicitProvider strin
 		return []string{st.cfg.Routing.DefaultProvider}
 	}
 	return nil
+}
+
+// enforceScopes checks app-key scope restrictions against the resolved model
+// and provider list. Returns a (possibly filtered) provider list or an error
+// if the key is not authorized.
+func (e *Engine) enforceScopes(ctx context.Context, model string, providerNames []string) ([]string, error) {
+	scopes := appkey.ScopesFromContext(ctx)
+	if scopes == nil {
+		return providerNames, nil
+	}
+	if !scopes.IsModelAllowed(model) {
+		return nil, &provider.ProviderError{
+			StatusCode: http.StatusForbidden,
+			Message:    fmt.Sprintf("app key not authorized for model %q", model),
+		}
+	}
+	if len(scopes.AllowedProviders) > 0 {
+		filtered := make([]string, 0, len(providerNames))
+		for _, p := range providerNames {
+			if scopes.IsProviderAllowed(p) {
+				filtered = append(filtered, p)
+			}
+		}
+		if len(filtered) == 0 {
+			return nil, &provider.ProviderError{
+				StatusCode: http.StatusForbidden,
+				Message:    fmt.Sprintf("app key not authorized for any provider serving model %q", model),
+			}
+		}
+		providerNames = filtered
+	}
+	return providerNames, nil
 }
 
 func containsString(ss []string, s string) bool {

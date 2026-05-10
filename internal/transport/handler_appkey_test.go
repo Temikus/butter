@@ -33,7 +33,7 @@ func setupLifecycleServer(t *testing.T, mockURL string, opts ...transport.Option
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	registry := provider.NewRegistry()
 	registry.Register(openrouter.New(mockURL, nil))
-	store := appkey.NewStore()
+	store := appkey.NewStore(logger)
 
 	allOpts := append([]transport.Option{transport.WithAppKeyStore(store, "X-Butter-App-Key", false)}, opts...)
 	engine := proxy.NewEngine(registry, cfg, logger, nil)
@@ -309,6 +309,139 @@ func TestAppKeyUpdate_MutuallyExclusive(t *testing.T) {
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
 	}
+}
+
+func TestAppKeyCreate_WithScopes(t *testing.T) {
+	mock := mockOpenRouter()
+	defer mock.Close()
+	ts, _ := setupLifecycleServer(t, mock.URL)
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/v1/app-keys", "application/json",
+		strings.NewReader(`{"label":"scoped","allowed_models":["gpt-4o"],"allowed_providers":["openai"]}`))
+	if err != nil {
+		t.Fatalf("vend: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+	var snap appkey.UsageSnapshot
+	if err := json.NewDecoder(resp.Body).Decode(&snap); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if snap.Scopes == nil {
+		t.Fatal("expected scopes in response")
+	}
+	if len(snap.Scopes.AllowedModels) != 1 || snap.Scopes.AllowedModels[0] != "gpt-4o" {
+		t.Errorf("unexpected allowed_models: %v", snap.Scopes.AllowedModels)
+	}
+	if len(snap.Scopes.AllowedProviders) != 1 || snap.Scopes.AllowedProviders[0] != "openai" {
+		t.Errorf("unexpected allowed_providers: %v", snap.Scopes.AllowedProviders)
+	}
+}
+
+func TestAppKeyCreate_WithoutScopes(t *testing.T) {
+	mock := mockOpenRouter()
+	defer mock.Close()
+	ts, _ := setupLifecycleServer(t, mock.URL)
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/v1/app-keys", "application/json",
+		strings.NewReader(`{"label":"unscoped"}`))
+	if err != nil {
+		t.Fatalf("vend: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var snap appkey.UsageSnapshot
+	_ = json.NewDecoder(resp.Body).Decode(&snap)
+	if snap.Scopes != nil {
+		t.Errorf("expected no scopes, got %+v", snap.Scopes)
+	}
+}
+
+func TestAppKeyUpdate_Scopes(t *testing.T) {
+	mock := mockOpenRouter()
+	defer mock.Close()
+	ts, store := setupLifecycleServer(t, mock.URL)
+	defer ts.Close()
+
+	const key = "btr_scopeupdate000000000"
+	store.Provision(key, "test")
+
+	// Set scopes.
+	req, _ := http.NewRequest("PATCH", ts.URL+"/v1/app-keys/"+key,
+		strings.NewReader(`{"allowed_models":["gpt-4o","gpt-4o-mini"]}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("patch: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var snap appkey.UsageSnapshot
+	_ = json.NewDecoder(resp.Body).Decode(&snap)
+	if snap.Scopes == nil || len(snap.Scopes.AllowedModels) != 2 {
+		t.Errorf("expected 2 allowed_models, got %+v", snap.Scopes)
+	}
+
+	// Clear scopes by sending empty arrays.
+	clearReq, _ := http.NewRequest("PATCH", ts.URL+"/v1/app-keys/"+key,
+		strings.NewReader(`{"allowed_models":[],"allowed_providers":[]}`))
+	clearReq.Header.Set("Content-Type", "application/json")
+	clearResp, err := http.DefaultClient.Do(clearReq)
+	if err != nil {
+		t.Fatalf("clear patch: %v", err)
+	}
+	defer func() { _ = clearResp.Body.Close() }()
+	var cleared appkey.UsageSnapshot
+	_ = json.NewDecoder(clearResp.Body).Decode(&cleared)
+	if cleared.Scopes != nil {
+		t.Errorf("expected nil scopes after clearing, got %+v", cleared.Scopes)
+	}
+}
+
+func TestAppKeyScope_Enforcement_E2E(t *testing.T) {
+	mock := mockOpenRouter()
+	defer mock.Close()
+	ts, store := setupLifecycleServer(t, mock.URL)
+	defer ts.Close()
+
+	// Vend a key scoped to gpt-4o-mini only.
+	rec, err := store.Vend("scoped", 0, appkey.WithScopes(appkey.KeyScopes{
+		AllowedModels: []string{"gpt-4o-mini"},
+	}))
+	if err != nil {
+		t.Fatalf("Vend: %v", err)
+	}
+
+	// Request with allowed model should succeed.
+	if status := postChatModel(t, ts.URL, rec.Key, "gpt-4o-mini"); status != 200 {
+		t.Errorf("allowed model: expected 200, got %d", status)
+	}
+
+	// Request with denied model should return 403.
+	if status := postChatModel(t, ts.URL, rec.Key, "gpt-4o"); status != 403 {
+		t.Errorf("denied model: expected 403, got %d", status)
+	}
+}
+
+// postChatModel issues a chat completions request with a specific model and key.
+func postChatModel(t *testing.T, baseURL, key, model string) int {
+	t.Helper()
+	body := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"hi"}]}`, model)
+	req, _ := http.NewRequest("POST", baseURL+"/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Butter-App-Key", key)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("postChatModel: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return resp.StatusCode
 }
 
 // postChat issues a chat completions request with the given key and returns the status.

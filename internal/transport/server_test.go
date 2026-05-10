@@ -735,7 +735,7 @@ func TestAnthropicMessages_UsageTracking(t *testing.T) {
 	registry := provider.NewRegistry()
 	registry.Register(anthropic.New(mockProvider.URL, nil))
 
-	store := appkey.NewStore()
+	store := appkey.NewStore(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	const key = "btr_msgsusage0000000000a"
 	store.Provision(key, "test")
 
@@ -814,7 +814,7 @@ func TestAnthropicMessages_StreamingUsageTracking(t *testing.T) {
 	registry := provider.NewRegistry()
 	registry.Register(anthropic.New(mockProvider.URL, nil))
 
-	store := appkey.NewStore()
+	store := appkey.NewStore(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	const key = "btr_msgsstream000000000z"
 	store.Provision(key, "test")
 
@@ -1082,7 +1082,7 @@ func setupAppKeyTestServer(t *testing.T, mockProviderURL string, provisionKeys .
 	mgr.Register(capture)
 	chain := plugin.NewChain(mgr, logger)
 
-	store := appkey.NewStore()
+	store := appkey.NewStore(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	for _, k := range provisionKeys {
 		store.Provision(k, "test")
 	}

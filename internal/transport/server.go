@@ -170,7 +170,8 @@ func (s *Server) withAppKeyTracking(next http.Handler) http.Handler {
 			s.writeError(w, http.StatusBadRequest, "invalid app key format")
 			return
 		}
-		if rec := s.appKeyStore.Lookup(key); rec != nil && !s.appKeyStore.IsActive(rec) {
+		rec := s.appKeyStore.Lookup(key)
+		if rec != nil && !s.appKeyStore.IsActive(rec) {
 			msg := "app key revoked"
 			if rec.RevokedAt.Load() == 0 {
 				msg = "app key expired"
@@ -178,7 +179,13 @@ func (s *Server) withAppKeyTracking(next http.Handler) http.Handler {
 			s.writeError(w, http.StatusUnauthorized, msg)
 			return
 		}
-		r = r.WithContext(appkey.WithKey(r.Context(), key))
+		ctx := appkey.WithKey(r.Context(), key)
+		if rec != nil {
+			if scopes := rec.GetScopes(); scopes != nil {
+				ctx = appkey.WithScopesCtx(ctx, scopes)
+			}
+		}
+		r = r.WithContext(ctx)
 		next.ServeHTTP(w, r)
 	})
 }

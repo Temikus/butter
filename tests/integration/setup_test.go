@@ -143,7 +143,7 @@ func (c *serverCfg) build(t *testing.T) *httptest.Server {
 
 	var serverOpts []transport.Option
 	if c.appKeysEnabled {
-		c.appKeyStore = appkey.NewStore()
+		c.appKeyStore = appkey.NewStore(slog.New(slog.NewTextHandler(io.Discard, nil)))
 		serverOpts = append(serverOpts, transport.WithAppKeyStore(c.appKeyStore, "X-Butter-App-Key", c.appKeyRequire))
 	}
 

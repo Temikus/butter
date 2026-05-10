@@ -16,10 +16,12 @@ import (
 // ttl_seconds overrides the server's default TTL when present; 0 disables expiry.
 func (s *Server) handleAppKeyCreate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Label      string `json:"label"`
-		TTLSeconds *int64 `json:"ttl_seconds,omitempty"`
+		Label            string   `json:"label"`
+		TTLSeconds       *int64   `json:"ttl_seconds,omitempty"`
+		AllowedModels    []string `json:"allowed_models,omitempty"`
+		AllowedProviders []string `json:"allowed_providers,omitempty"`
 	}
-	// Best-effort decode; both fields are optional.
+	// Best-effort decode; all fields are optional.
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
 	ttl := s.appKeyTTL
@@ -27,7 +29,15 @@ func (s *Server) handleAppKeyCreate(w http.ResponseWriter, r *http.Request) {
 		ttl = time.Duration(*req.TTLSeconds) * time.Second
 	}
 
-	record, err := s.appKeyStore.Vend(req.Label, ttl)
+	var opts []appkey.VendOption
+	if len(req.AllowedModels) > 0 || len(req.AllowedProviders) > 0 {
+		opts = append(opts, appkey.WithScopes(appkey.KeyScopes{
+			AllowedModels:    req.AllowedModels,
+			AllowedProviders: req.AllowedProviders,
+		}))
+	}
+
+	record, err := s.appKeyStore.Vend(req.Label, ttl, opts...)
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, "failed to generate key")
 		return
@@ -105,8 +115,10 @@ func (s *Server) handleAppKeyUpdate(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
 
 	var req struct {
-		ExpiresAt  json.RawMessage `json:"expires_at,omitempty"`
-		TTLSeconds *int64          `json:"ttl_seconds,omitempty"`
+		ExpiresAt        json.RawMessage `json:"expires_at,omitempty"`
+		TTLSeconds       *int64          `json:"ttl_seconds,omitempty"`
+		AllowedModels    *[]string       `json:"allowed_models,omitempty"`
+		AllowedProviders *[]string       `json:"allowed_providers,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, http.StatusBadRequest, "invalid request body")
@@ -117,31 +129,70 @@ func (s *Server) handleAppKeyUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var expiry time.Time
-	switch {
-	case req.TTLSeconds != nil:
-		if *req.TTLSeconds > 0 {
-			expiry = time.Now().Add(time.Duration(*req.TTLSeconds) * time.Second)
+	// Update expiry if requested.
+	hasExpiryUpdate := req.TTLSeconds != nil || len(req.ExpiresAt) > 0
+	if hasExpiryUpdate {
+		var expiry time.Time
+		switch {
+		case req.TTLSeconds != nil:
+			if *req.TTLSeconds > 0 {
+				expiry = time.Now().Add(time.Duration(*req.TTLSeconds) * time.Second)
+			}
+		case string(req.ExpiresAt) != "null":
+			var ts time.Time
+			if err := json.Unmarshal(req.ExpiresAt, &ts); err != nil {
+				s.writeError(w, http.StatusBadRequest, "expires_at must be RFC3339 timestamp or null")
+				return
+			}
+			expiry = ts
 		}
-	case len(req.ExpiresAt) > 0 && string(req.ExpiresAt) != "null":
-		var ts time.Time
-		if err := json.Unmarshal(req.ExpiresAt, &ts); err != nil {
-			s.writeError(w, http.StatusBadRequest, "expires_at must be RFC3339 timestamp or null")
+
+		if err := s.appKeyStore.SetExpiry(key, expiry); err != nil {
+			if errors.Is(err, appkey.ErrUnknownKey) {
+				s.writeError(w, http.StatusNotFound, fmt.Sprintf("app key %q not found", key))
+				return
+			}
+			s.writeError(w, http.StatusInternalServerError, "failed to update key")
 			return
 		}
-		expiry = ts
 	}
 
-	if err := s.appKeyStore.SetExpiry(key, expiry); err != nil {
-		if errors.Is(err, appkey.ErrUnknownKey) {
+	// Update scopes if requested. nil pointer = not sent, empty slice = clear restriction.
+	if req.AllowedModels != nil || req.AllowedProviders != nil {
+		rec := s.appKeyStore.Lookup(key)
+		if rec == nil {
 			s.writeError(w, http.StatusNotFound, fmt.Sprintf("app key %q not found", key))
 			return
 		}
-		s.writeError(w, http.StatusInternalServerError, "failed to update key")
-		return
+		current := rec.GetScopes()
+		scopes := &appkey.KeyScopes{}
+		if current != nil {
+			*scopes = *current
+		}
+		if req.AllowedModels != nil {
+			scopes.AllowedModels = *req.AllowedModels
+		}
+		if req.AllowedProviders != nil {
+			scopes.AllowedProviders = *req.AllowedProviders
+		}
+		if len(scopes.AllowedModels) == 0 && len(scopes.AllowedProviders) == 0 {
+			scopes = nil
+		}
+		if err := s.appKeyStore.UpdateScopes(key, scopes); err != nil {
+			if errors.Is(err, appkey.ErrUnknownKey) {
+				s.writeError(w, http.StatusNotFound, fmt.Sprintf("app key %q not found", key))
+				return
+			}
+			s.writeError(w, http.StatusInternalServerError, "failed to update key scopes")
+			return
+		}
 	}
 
 	rec := s.appKeyStore.Lookup(key)
+	if rec == nil {
+		s.writeError(w, http.StatusNotFound, fmt.Sprintf("app key %q not found", key))
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(rec.Snapshot())
 }

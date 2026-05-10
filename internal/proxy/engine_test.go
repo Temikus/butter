@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/temikus/butter/internal/appkey"
 	"github.com/temikus/butter/internal/config"
 	"github.com/temikus/butter/internal/provider"
 )
@@ -1093,5 +1094,121 @@ func TestDispatchAnthropicNative_StoredCredentialPreservesClientHeaders(t *testi
 	}
 	if got := capturedHeaders.Get("anthropic-beta"); got != "extended-thinking-2025-04-01" {
 		t.Errorf("expected client anthropic-beta preserved, got %q", got)
+	}
+}
+
+func TestEnforceScopes_ModelDenied(t *testing.T) {
+	mock := &mockProvider{
+		name:     "openrouter",
+		response: &provider.ChatResponse{StatusCode: 200, RawBody: []byte(`{"choices":[]}`)},
+	}
+
+	reg := provider.NewRegistry()
+	reg.Register(mock)
+
+	cfg := &config.Config{
+		Routing: config.RoutingConfig{DefaultProvider: "openrouter"},
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	engine := NewEngine(reg, cfg, logger, nil)
+
+	scopes := &appkey.KeyScopes{AllowedModels: []string{"gpt-4o-mini"}}
+	ctx := appkey.WithScopesCtx(context.Background(), scopes)
+
+	_, err := engine.Dispatch(ctx, []byte(`{"model":"gpt-4o","messages":[]}`))
+	if err == nil {
+		t.Fatal("expected scope error, got nil")
+	}
+	var pe *provider.ProviderError
+	if !errors.As(err, &pe) || pe.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 ProviderError, got %v", err)
+	}
+}
+
+func TestEnforceScopes_ProviderFiltered(t *testing.T) {
+	var calledProviders []string
+	makeMock := func(name string) *mockProvider {
+		return &mockProvider{
+			name: name,
+			chatFn: func(_ context.Context, _ *provider.ChatRequest) (*provider.ChatResponse, error) {
+				calledProviders = append(calledProviders, name)
+				return &provider.ChatResponse{StatusCode: 200, RawBody: []byte(`{"choices":[]}`)}, nil
+			},
+		}
+	}
+
+	reg := provider.NewRegistry()
+	reg.Register(makeMock("openai"))
+	reg.Register(makeMock("openrouter"))
+
+	cfg := &config.Config{
+		Routing: config.RoutingConfig{
+			Models: map[string]config.ModelRoute{
+				"gpt-4o": {Providers: []string{"openai", "openrouter"}},
+			},
+		},
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	engine := NewEngine(reg, cfg, logger, nil)
+
+	scopes := &appkey.KeyScopes{AllowedProviders: []string{"openrouter"}}
+	ctx := appkey.WithScopesCtx(context.Background(), scopes)
+
+	_, err := engine.Dispatch(ctx, []byte(`{"model":"gpt-4o","messages":[]}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(calledProviders) != 1 || calledProviders[0] != "openrouter" {
+		t.Errorf("expected only openrouter called, got %v", calledProviders)
+	}
+}
+
+func TestEnforceScopes_AllProvidersDenied(t *testing.T) {
+	mock := &mockProvider{
+		name:     "openai",
+		response: &provider.ChatResponse{StatusCode: 200, RawBody: []byte(`{"choices":[]}`)},
+	}
+
+	reg := provider.NewRegistry()
+	reg.Register(mock)
+
+	cfg := &config.Config{
+		Routing: config.RoutingConfig{DefaultProvider: "openai"},
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	engine := NewEngine(reg, cfg, logger, nil)
+
+	scopes := &appkey.KeyScopes{AllowedProviders: []string{"anthropic"}}
+	ctx := appkey.WithScopesCtx(context.Background(), scopes)
+
+	_, err := engine.Dispatch(ctx, []byte(`{"model":"gpt-4o","messages":[]}`))
+	if err == nil {
+		t.Fatal("expected scope error, got nil")
+	}
+	var pe *provider.ProviderError
+	if !errors.As(err, &pe) || pe.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 ProviderError, got %v", err)
+	}
+}
+
+func TestEnforceScopes_NoScopes(t *testing.T) {
+	mock := &mockProvider{
+		name:     "openrouter",
+		response: &provider.ChatResponse{StatusCode: 200, RawBody: []byte(`{"choices":[]}`)},
+	}
+
+	reg := provider.NewRegistry()
+	reg.Register(mock)
+
+	cfg := &config.Config{
+		Routing: config.RoutingConfig{DefaultProvider: "openrouter"},
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	engine := NewEngine(reg, cfg, logger, nil)
+
+	// No scopes in context — should work normally.
+	_, err := engine.Dispatch(context.Background(), []byte(`{"model":"gpt-4o","messages":[]}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

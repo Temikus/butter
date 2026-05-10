@@ -20,7 +20,7 @@ func TestPersisterRoundTrip(t *testing.T) {
 	logger := newTestLogger()
 
 	// Phase 1: create store, provision keys, record requests, flush.
-	store1 := NewStore()
+	store1 := NewStore(newTestLogger())
 	store1.Provision("btr_testkey00000000001", "svc-alpha")
 	store1.Provision("btr_testkey00000000002", "svc-beta")
 	store1.RecordRequest("btr_testkey00000000001", "gpt-4o", false, 100, 50)
@@ -37,7 +37,7 @@ func TestPersisterRoundTrip(t *testing.T) {
 	}
 
 	// Phase 2: new store, load from same db, verify.
-	store2 := NewStore()
+	store2 := NewStore(newTestLogger())
 	p2, err := NewPersister(dbPath, store2, time.Hour, logger)
 	if err != nil {
 		t.Fatalf("NewPersister (reload): %v", err)
@@ -93,7 +93,7 @@ func TestPersisterStartupMerge(t *testing.T) {
 	logger := newTestLogger()
 
 	// Phase 1: persist one key.
-	store1 := NewStore()
+	store1 := NewStore(newTestLogger())
 	store1.Provision("btr_testkey00000000001", "persisted")
 	store1.RecordRequest("btr_testkey00000000001", "gpt-4o", false, 10, 5)
 
@@ -107,7 +107,7 @@ func TestPersisterStartupMerge(t *testing.T) {
 	}
 
 	// Phase 2: load, then provision a config-defined key.
-	store2 := NewStore()
+	store2 := NewStore(newTestLogger())
 	p2, err := NewPersister(dbPath, store2, time.Hour, logger)
 	if err != nil {
 		t.Fatalf("NewPersister (reload): %v", err)
@@ -138,7 +138,7 @@ func TestPersisterIdempotentRestore(t *testing.T) {
 	logger := newTestLogger()
 
 	// Phase 1: persist a key with counters.
-	store1 := NewStore()
+	store1 := NewStore(newTestLogger())
 	store1.Provision("btr_testkey00000000001", "original")
 	store1.RecordRequest("btr_testkey00000000001", "gpt-4o", false, 100, 50)
 
@@ -153,7 +153,7 @@ func TestPersisterIdempotentRestore(t *testing.T) {
 
 	// Phase 2: pre-provision the same key with a new label (simulating
 	// config + bbolt overlap — matches production startup order in main.go).
-	store2 := NewStore()
+	store2 := NewStore(newTestLogger())
 	store2.Provision("btr_testkey00000000001", "config-label")
 
 	p2, err := NewPersister(dbPath, store2, time.Hour, logger)
@@ -185,7 +185,7 @@ func TestPersisterPeriodicFlush(t *testing.T) {
 	dbPath := filepath.Join(dir, "test.db")
 	logger := newTestLogger()
 
-	store := NewStore()
+	store := NewStore(newTestLogger())
 	store.Provision("btr_testkey00000000001", "svc")
 
 	p, err := NewPersister(dbPath, store, 20*time.Millisecond, logger)
@@ -206,7 +206,7 @@ func TestPersisterPeriodicFlush(t *testing.T) {
 	}
 
 	// Verify by loading into a new store.
-	store2 := NewStore()
+	store2 := NewStore(newTestLogger())
 	p2, err := NewPersister(dbPath, store2, time.Hour, logger)
 	if err != nil {
 		t.Fatalf("NewPersister (reload): %v", err)
@@ -224,7 +224,7 @@ func TestPersisterGracefulClose(t *testing.T) {
 	dbPath := filepath.Join(dir, "test.db")
 	logger := newTestLogger()
 
-	store := NewStore()
+	store := NewStore(newTestLogger())
 	store.Provision("btr_testkey00000000001", "svc")
 	store.RecordRequest("btr_testkey00000000001", "gpt-4o", false, 10, 5)
 
@@ -241,7 +241,7 @@ func TestPersisterGracefulClose(t *testing.T) {
 	}
 
 	// Verify the final flush happened.
-	store2 := NewStore()
+	store2 := NewStore(newTestLogger())
 	p2, err := NewPersister(dbPath, store2, time.Hour, logger)
 	if err != nil {
 		t.Fatalf("NewPersister (reload): %v", err)
@@ -259,7 +259,7 @@ func TestPersisterEmptyDB(t *testing.T) {
 	dbPath := filepath.Join(dir, "brand-new.db")
 	logger := newTestLogger()
 
-	store := NewStore()
+	store := NewStore(newTestLogger())
 	p, err := NewPersister(dbPath, store, time.Hour, logger)
 	if err != nil {
 		t.Fatalf("NewPersister on fresh path: %v", err)
@@ -277,7 +277,7 @@ func TestPersisterCorruptEntry(t *testing.T) {
 	logger := newTestLogger()
 
 	// Phase 1: write a valid key and a corrupt entry directly.
-	store1 := NewStore()
+	store1 := NewStore(newTestLogger())
 	store1.Provision("btr_testkey00000000001", "good")
 
 	p1, err := NewPersister(dbPath, store1, time.Hour, logger)
@@ -302,7 +302,7 @@ func TestPersisterCorruptEntry(t *testing.T) {
 	_ = db.Close()
 
 	// Phase 2: load should skip the corrupt entry without failing.
-	store2 := NewStore()
+	store2 := NewStore(newTestLogger())
 	p2, err := NewPersister(dbPath, store2, time.Hour, logger)
 	if err != nil {
 		t.Fatalf("NewPersister should not fail on corrupt entry: %v", err)
@@ -330,7 +330,7 @@ func TestPersisterCloseIdempotent(t *testing.T) {
 	dbPath := filepath.Join(dir, "test.db")
 	logger := newTestLogger()
 
-	store := NewStore()
+	store := NewStore(newTestLogger())
 	p, err := NewPersister(dbPath, store, time.Hour, logger)
 	if err != nil {
 		t.Fatalf("NewPersister: %v", err)
@@ -346,7 +346,7 @@ func TestPersisterCloseIdempotent(t *testing.T) {
 }
 
 func TestStoreRestore(t *testing.T) {
-	s := NewStore()
+	s := NewStore(newTestLogger())
 	snap := &UsageSnapshot{
 		Key:               "btr_restored0000000000",
 		Label:             "restored-svc",
@@ -388,7 +388,7 @@ func TestStoreRestore(t *testing.T) {
 }
 
 func TestStoreRestoreMergesCounters(t *testing.T) {
-	s := NewStore()
+	s := NewStore(newTestLogger())
 	s.Provision("btr_existing0000000000", "config-label")
 
 	// Restore merges persisted counters but keeps existing label.
@@ -426,7 +426,7 @@ func TestPersisterVendPersist(t *testing.T) {
 	dbPath := filepath.Join(dir, "test.db")
 	logger := newTestLogger()
 
-	store := NewStore()
+	store := NewStore(newTestLogger())
 	p, err := NewPersister(dbPath, store, time.Hour, logger)
 	if err != nil {
 		t.Fatalf("NewPersister: %v", err)
@@ -446,7 +446,7 @@ func TestPersisterVendPersist(t *testing.T) {
 	}
 
 	// Verify by loading into a new store.
-	store2 := NewStore()
+	store2 := NewStore(newTestLogger())
 	p2, err := NewPersister(dbPath, store2, time.Hour, logger)
 	if err != nil {
 		t.Fatalf("NewPersister (reload): %v", err)
@@ -473,7 +473,7 @@ func TestPersisterDeleteKey(t *testing.T) {
 	logger := newTestLogger()
 
 	// Phase 1: vend two keys, persist, then delete one.
-	store1 := NewStore()
+	store1 := NewStore(newTestLogger())
 	p1, err := NewPersister(dbPath, store1, time.Hour, logger)
 	if err != nil {
 		t.Fatalf("NewPersister: %v", err)
@@ -494,7 +494,7 @@ func TestPersisterDeleteKey(t *testing.T) {
 	}
 
 	// Phase 2: reopen and confirm purged key is gone, kept key is intact.
-	store2 := NewStore()
+	store2 := NewStore(newTestLogger())
 	p2, err := NewPersister(dbPath, store2, time.Hour, logger)
 	if err != nil {
 		t.Fatalf("NewPersister (reload): %v", err)
@@ -514,7 +514,7 @@ func TestPersisterDeleteUnknownKeyIsNoop(t *testing.T) {
 	dbPath := filepath.Join(dir, "test.db")
 	logger := newTestLogger()
 
-	store := NewStore()
+	store := NewStore(newTestLogger())
 	p, err := NewPersister(dbPath, store, time.Hour, logger)
 	if err != nil {
 		t.Fatalf("NewPersister: %v", err)
@@ -531,7 +531,7 @@ func TestPersisterRevokeSurvives(t *testing.T) {
 	dbPath := filepath.Join(dir, "test.db")
 	logger := newTestLogger()
 
-	store := NewStore()
+	store := NewStore(newTestLogger())
 	p, err := NewPersister(dbPath, store, time.Hour, logger)
 	if err != nil {
 		t.Fatalf("NewPersister: %v", err)
@@ -549,7 +549,7 @@ func TestPersisterRevokeSurvives(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 
-	store2 := NewStore()
+	store2 := NewStore(newTestLogger())
 	p2, err := NewPersister(dbPath, store2, time.Hour, logger)
 	if err != nil {
 		t.Fatalf("NewPersister reload: %v", err)
@@ -576,7 +576,7 @@ func TestPersisterFlushRevokeRace(t *testing.T) {
 	dbPath := filepath.Join(dir, "test.db")
 	logger := newTestLogger()
 
-	store := NewStore()
+	store := NewStore(newTestLogger())
 	p, err := NewPersister(dbPath, store, time.Hour, logger)
 	if err != nil {
 		t.Fatalf("NewPersister: %v", err)
@@ -610,7 +610,7 @@ func TestPersisterFlushRevokeRace(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 
-	store2 := NewStore()
+	store2 := NewStore(newTestLogger())
 	p2, err := NewPersister(dbPath, store2, time.Hour, logger)
 	if err != nil {
 		t.Fatalf("reload: %v", err)
