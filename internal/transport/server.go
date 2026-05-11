@@ -286,6 +286,14 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request, body []byt
 		return
 	}
 
+	var usageSink *appkey.OpenAIStreamUsageSink
+	if s.appKeyStore != nil {
+		if _, ok := appkey.FromContext(r.Context()); ok {
+			body = appkey.InjectStreamOptions(body)
+			usageSink = &appkey.OpenAIStreamUsageSink{}
+		}
+	}
+
 	stream, err := s.engine.DispatchStream(r.Context(), body)
 	if err != nil {
 		s.logger.Error("stream dispatch failed", "error", err)
@@ -321,6 +329,10 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request, body []byt
 			break
 		}
 
+		if usageSink != nil {
+			usageSink.FeedChunk(chunk)
+		}
+
 		// Run stream chunk hooks.
 		if s.chain != nil && pctx != nil {
 			chunk = s.chain.RunStreamChunk(pctx, chunk)
@@ -333,12 +345,15 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request, body []byt
 
 	s.emitTrace(pctx, r, http.StatusOK, true, streamErr)
 
-	// Async usage tracking for streaming requests (token counts not extracted).
 	if s.appKeyStore != nil {
 		if key, ok := appkey.FromContext(r.Context()); ok {
 			model := pctx.Model
 			store := s.appKeyStore
-			go store.RecordRequest(key, model, true, 0, 0)
+			var pt, ct int64
+			if usageSink != nil {
+				pt, ct = usageSink.Totals()
+			}
+			go store.RecordRequest(key, model, true, pt, ct)
 		}
 	}
 }

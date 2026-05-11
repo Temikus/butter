@@ -5,6 +5,29 @@ import (
 	"encoding/json"
 )
 
+// InjectStreamOptions adds "stream_options":{"include_usage":true} to the raw
+// JSON request body so that OpenAI-compatible providers include token usage in
+// the final streaming chunk. Returns the original body unchanged if
+// stream_options is already present or the body is not valid JSON.
+func InjectStreamOptions(body []byte) []byte {
+	if len(body) == 0 {
+		return body
+	}
+	if bytes.Contains(body, []byte(`"stream_options"`)) {
+		return body
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(body, &m); err != nil {
+		return body
+	}
+	m["stream_options"] = json.RawMessage(`{"include_usage":true}`)
+	out, err := json.Marshal(m)
+	if err != nil {
+		return body
+	}
+	return out
+}
+
 // usagePayload is a minimal struct for extracting token counts from a
 // provider response body without allocating a full response object.
 type usagePayload struct {
@@ -134,4 +157,56 @@ func (s *AnthropicStreamUsageSink) Write(p []byte) (int, error) {
 // final value seen represents the full response usage.
 func (s *AnthropicStreamUsageSink) Totals() (input, output int64) {
 	return s.input, s.output
+}
+
+// OpenAIStreamUsageSink accumulates token counts from OpenAI-format SSE
+// streaming chunks. Fed individual SSE data lines via FeedChunk in a
+// pull-model loop (the /v1/chat/completions path uses stream.Next(), not
+// io.Copy). OpenAI includes usage data in the final chunk before [DONE]
+// when stream_options.include_usage is true.
+//
+// Not safe for concurrent use — intended to be called from a single
+// stream.Next() loop and read once via Totals() after the loop returns.
+type OpenAIStreamUsageSink struct {
+	prompt     int64
+	completion int64
+}
+
+type openaiChunkUsage struct {
+	Usage *struct {
+		PromptTokens     int64 `json:"prompt_tokens"`
+		CompletionTokens int64 `json:"completion_tokens"`
+	} `json:"usage"`
+}
+
+const openaiSSEDataPrefix = "data: "
+
+// FeedChunk parses a single SSE data line (including "data: " prefix) and
+// updates token counts if a usage field is present.
+func (s *OpenAIStreamUsageSink) FeedChunk(chunk []byte) {
+	if !bytes.HasPrefix(chunk, []byte(openaiSSEDataPrefix)) {
+		return
+	}
+	payload := chunk[len(openaiSSEDataPrefix):]
+	if len(payload) == 0 || payload[0] != '{' {
+		return
+	}
+	var cu openaiChunkUsage
+	if err := json.Unmarshal(payload, &cu); err != nil {
+		return
+	}
+	if cu.Usage == nil {
+		return
+	}
+	if cu.Usage.PromptTokens > 0 {
+		s.prompt = cu.Usage.PromptTokens
+	}
+	if cu.Usage.CompletionTokens > 0 {
+		s.completion = cu.Usage.CompletionTokens
+	}
+}
+
+// Totals returns the most recently observed prompt and completion token counts.
+func (s *OpenAIStreamUsageSink) Totals() (prompt, completion int64) {
+	return s.prompt, s.completion
 }

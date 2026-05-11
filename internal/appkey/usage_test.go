@@ -1,6 +1,7 @@
 package appkey
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -235,5 +236,151 @@ func TestAnthropicStreamUsageSink_WriteNeverErrors(t *testing.T) {
 		if n != len(s) {
 			t.Errorf("Write(%q) n=%d, want %d", s, n, len(s))
 		}
+	}
+}
+
+// --- OpenAIStreamUsageSink tests ---
+
+func TestOpenAIStreamUsageSink_HappyPath(t *testing.T) {
+	sink := &OpenAIStreamUsageSink{}
+	chunks := []string{
+		`data: {"id":"chatcmpl-s","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","content":""}}]}`,
+		`data: {"id":"chatcmpl-s","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"Hello"}}]}`,
+		`data: {"id":"chatcmpl-s","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"!"}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`,
+	}
+	for _, c := range chunks {
+		sink.FeedChunk([]byte(c))
+	}
+	pt, ct := sink.Totals()
+	if pt != 10 {
+		t.Errorf("expected prompt_tokens=10, got %d", pt)
+	}
+	if ct != 5 {
+		t.Errorf("expected completion_tokens=5, got %d", ct)
+	}
+}
+
+func TestOpenAIStreamUsageSink_NoUsageChunks(t *testing.T) {
+	sink := &OpenAIStreamUsageSink{}
+	chunks := []string{
+		`data: {"id":"chatcmpl-s","choices":[{"delta":{"content":"Hello"}}]}`,
+		`data: {"id":"chatcmpl-s","choices":[{"delta":{"content":"!"}}]}`,
+	}
+	for _, c := range chunks {
+		sink.FeedChunk([]byte(c))
+	}
+	pt, ct := sink.Totals()
+	if pt != 0 || ct != 0 {
+		t.Errorf("expected zeros, got (%d, %d)", pt, ct)
+	}
+}
+
+func TestOpenAIStreamUsageSink_NonDataLines(t *testing.T) {
+	sink := &OpenAIStreamUsageSink{}
+	sink.FeedChunk([]byte("event: ping"))
+	sink.FeedChunk([]byte(""))
+	sink.FeedChunk([]byte(": keepalive"))
+	sink.FeedChunk([]byte("data: [DONE]"))
+	pt, ct := sink.Totals()
+	if pt != 0 || ct != 0 {
+		t.Errorf("expected zeros, got (%d, %d)", pt, ct)
+	}
+}
+
+func TestOpenAIStreamUsageSink_MalformedJSON(t *testing.T) {
+	sink := &OpenAIStreamUsageSink{}
+	sink.FeedChunk([]byte("data: {bad json"))
+	sink.FeedChunk([]byte("data: not even close"))
+	pt, ct := sink.Totals()
+	if pt != 0 || ct != 0 {
+		t.Errorf("expected zeros for malformed JSON, got (%d, %d)", pt, ct)
+	}
+}
+
+func TestOpenAIStreamUsageSink_LastWriteWins(t *testing.T) {
+	sink := &OpenAIStreamUsageSink{}
+	sink.FeedChunk([]byte(`data: {"usage":{"prompt_tokens":5,"completion_tokens":3}}`))
+	sink.FeedChunk([]byte(`data: {"usage":{"prompt_tokens":10,"completion_tokens":7}}`))
+	pt, ct := sink.Totals()
+	if pt != 10 {
+		t.Errorf("expected prompt_tokens=10, got %d", pt)
+	}
+	if ct != 7 {
+		t.Errorf("expected completion_tokens=7, got %d", ct)
+	}
+}
+
+// --- InjectStreamOptions tests ---
+
+func TestInjectStreamOptions_AddsWhenAbsent(t *testing.T) {
+	body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],"stream":true}`)
+	result := InjectStreamOptions(body)
+
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(result, &m); err != nil {
+		t.Fatalf("result is not valid JSON: %v", err)
+	}
+	so, ok := m["stream_options"]
+	if !ok {
+		t.Fatal("stream_options not found in result")
+	}
+	var opts struct {
+		IncludeUsage bool `json:"include_usage"`
+	}
+	if err := json.Unmarshal(so, &opts); err != nil {
+		t.Fatalf("parsing stream_options: %v", err)
+	}
+	if !opts.IncludeUsage {
+		t.Error("expected include_usage=true")
+	}
+}
+
+func TestInjectStreamOptions_NoopWhenPresent(t *testing.T) {
+	body := []byte(`{"model":"gpt-4o","stream":true,"stream_options":{"include_usage":false}}`)
+	result := InjectStreamOptions(body)
+	if string(result) != string(body) {
+		t.Errorf("expected unchanged body when stream_options present")
+	}
+}
+
+func TestInjectStreamOptions_EmptyBody(t *testing.T) {
+	result := InjectStreamOptions(nil)
+	if result != nil {
+		t.Errorf("expected nil for nil input, got %q", result)
+	}
+	result = InjectStreamOptions([]byte{})
+	if len(result) != 0 {
+		t.Errorf("expected empty for empty input, got %q", result)
+	}
+}
+
+func TestInjectStreamOptions_PreservesAllFields(t *testing.T) {
+	body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],"stream":true,"temperature":0.7,"max_tokens":100}`)
+	result := InjectStreamOptions(body)
+
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(result, &m); err != nil {
+		t.Fatalf("result is not valid JSON: %v", err)
+	}
+	for _, key := range []string{"model", "messages", "stream", "temperature", "max_tokens", "stream_options"} {
+		if _, ok := m[key]; !ok {
+			t.Errorf("missing key %q in result", key)
+		}
+	}
+}
+
+func TestInjectStreamOptions_InvalidJSON(t *testing.T) {
+	body := []byte(`not json at all`)
+	result := InjectStreamOptions(body)
+	if string(result) != string(body) {
+		t.Errorf("expected unchanged body for invalid JSON")
+	}
+}
+
+func BenchmarkInjectStreamOptions(b *testing.B) {
+	body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"Write me a story about a brave knight"}],"stream":true,"temperature":0.7,"max_tokens":1024}`)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = InjectStreamOptions(body)
 	}
 }

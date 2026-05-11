@@ -3,6 +3,7 @@
 package integration
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -214,6 +215,34 @@ func openAIStream(w http.ResponseWriter, _ *http.Request) {
 		`data: {"id":"chatcmpl-s","object":"chat.completion.chunk","created":1700000000,"model":"gpt-4o","choices":[{"index":0,"delta":{"content":"!"},"finish_reason":"stop"}]}`,
 		`data: [DONE]`,
 	} {
+		_, _ = fmt.Fprintf(w, "%s\n\n", chunk)
+		f.Flush()
+	}
+}
+
+func openAIStreamConditionalUsage(w http.ResponseWriter, r *http.Request) {
+	body, _ := io.ReadAll(r.Body)
+	includeUsage := bytes.Contains(body, []byte(`"include_usage":true`))
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.WriteHeader(http.StatusOK)
+	f := w.(http.Flusher)
+
+	chunks := []string{
+		`data: {"id":"chatcmpl-s","object":"chat.completion.chunk","created":1700000000,"model":"gpt-4o","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}`,
+		`data: {"id":"chatcmpl-s","object":"chat.completion.chunk","created":1700000000,"model":"gpt-4o","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}`,
+	}
+	if includeUsage {
+		chunks = append(chunks,
+			`data: {"id":"chatcmpl-s","object":"chat.completion.chunk","created":1700000000,"model":"gpt-4o","choices":[{"index":0,"delta":{"content":"!"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`)
+	} else {
+		chunks = append(chunks,
+			`data: {"id":"chatcmpl-s","object":"chat.completion.chunk","created":1700000000,"model":"gpt-4o","choices":[{"index":0,"delta":{"content":"!"},"finish_reason":"stop"}]}`)
+	}
+	chunks = append(chunks, `data: [DONE]`)
+
+	for _, chunk := range chunks {
 		_, _ = fmt.Fprintf(w, "%s\n\n", chunk)
 		f.Flush()
 	}
