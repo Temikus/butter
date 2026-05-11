@@ -210,6 +210,72 @@ func TestScan_ReturnsCategory(t *testing.T) {
 	}
 }
 
+func TestScan_FalsePositiveCorpus(t *testing.T) {
+	roleSet := map[string]bool{"user": true, "assistant": true}
+
+	t.Run("ShouldNotMatch", func(t *testing.T) {
+		clean := []string{
+			"What is the difference between TCP and UDP protocols?",
+			"Help me write unit tests for this authentication module",
+			"According to the instructions, we need to file form 1040 by April 15",
+			"The system prompt for bash is configured in .bashrc",
+			"I decoded the base64 payload and found it contained a PNG header",
+			"She played an important role as a mentor in the program",
+			"We need to update the documentation for the new release",
+			"The function will execute after the timeout expires",
+			"Please forward this message to the accounting department",
+			"The restriction applies only to commercial redistribution",
+		}
+		for _, content := range clean {
+			msgs := []chatMessage{{Role: "user", Content: content}}
+			matched, pattern, _ := scan(msgs, roleSet, false)
+			if matched {
+				t.Errorf("false positive on %q, matched pattern %q", content, pattern)
+			}
+		}
+	})
+
+	t.Run("KnownFalsePositives", func(t *testing.T) {
+		cases := []struct {
+			content  string
+			pattern  string
+			category string
+		}{
+			// jailbreak
+			{"I want to jailbreak my iPhone to install Cydia", "jailbreak", "jailbreak"},
+			{"How do I enable developer mode in Chrome DevTools?", "developer mode", "jailbreak"},
+			{"In Doom you can activate god mode with IDDQD", "god mode", "jailbreak"},
+			{"Run the command in sudo mode to get root access", "sudo mode", "jailbreak"},
+			{"You can bypass your firewall temporarily for testing", "bypass your", "jailbreak"},
+			// encoding_attack
+			{"How do I base64 decode a string in Python?", "base64 decode", "encoding_attack"},
+			{"Use hex decode to convert the packet header bytes", "hex decode", "encoding_attack"},
+			{"ROT13 is a simple letter substitution cipher", "rot13", "encoding_attack"},
+			{"I need to decode the following and convert to UTF-8", "decode the following and", "encoding_attack"},
+			// boundary_bypass
+			{"From now on you will need a badge to enter the building", "from now on you will", "boundary_bypass"},
+			{"From now on, you will receive weekly status updates", "from now on, you will", "boundary_bypass"},
+			{"Please see the new instructions: section of the handbook", "new instructions:", "boundary_bypass"},
+			{"Check the updated instructions: page for policy changes", "updated instructions:", "boundary_bypass"},
+			// persona_injection
+			{"This software is available without restrictions under MIT", "without restrictions", "persona_injection"},
+			{"The data is shared without restrictions for research", "without restrictions", "persona_injection"},
+			// instruction_override
+			{"Just forget everything I said and start fresh on the budget", "forget everything", "instruction_override"},
+		}
+		for _, tc := range cases {
+			msgs := []chatMessage{{Role: "user", Content: tc.content}}
+			matched, pattern, cat := scan(msgs, roleSet, false)
+			if matched {
+				t.Logf("known FP still present: %q triggers %q (%s)", tc.content, pattern, cat)
+			} else {
+				t.Logf("known FP resolved: %q no longer triggers %q — consider moving to ShouldNotMatch", tc.content, tc.pattern)
+			}
+			_ = cat
+		}
+	})
+}
+
 func TestScan_EncodingAttackPatterns(t *testing.T) {
 	roleSet := map[string]bool{"user": true}
 	attacks := []string{
