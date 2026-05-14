@@ -130,8 +130,10 @@ plugins:
     #   btr_abc123: 200
   requestlog:
     level: info              # debug | info | warn | error
-    log_bodies: false        # log request/response bodies (truncated)
-    body_max_bytes: 1024     # max body bytes to log
+    log_bodies: false        # log request/response bodies (truncated to body_max_bytes)
+    body_max_bytes: 1024     # max body bytes to log (applies to streaming capture too)
+    # request_id_header: X-Request-Id  # correlation ID header (read inbound, set outbound)
+    # log_app_key: true                # include app_key in log lines (default: true)
   metrics:                   # Prometheus metrics at GET /metrics (OTel-based)
     # per_key_metrics: false # Add app_key label to all metrics (opt-in, high cardinality)
   # tracing:                 # Distributed tracing via OpenTelemetry (OTLP HTTP)

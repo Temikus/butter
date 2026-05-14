@@ -242,6 +242,8 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	pctx.Metadata["response_body"] = resp.RawBody
+
 	// Run transport post-hooks.
 	if s.chain != nil {
 		s.chain.RunPostHTTP(pctx)
@@ -275,6 +277,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
+	applyResponseHeaders(w, pctx)
 	w.WriteHeader(resp.StatusCode)
 	_, _ = w.Write(resp.RawBody)
 }
@@ -311,6 +314,7 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request, body []byt
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
+	applyResponseHeaders(w, pctx)
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
@@ -496,6 +500,7 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
 			w.Header().Add(k, v)
 		}
 	}
+	applyResponseHeaders(w, pctx)
 	w.WriteHeader(resp.StatusCode)
 
 	if streaming {
@@ -506,12 +511,18 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
 		// and never returns an error so it cannot break the relay.
 		sink := &appkey.AnthropicStreamUsageSink{}
 		flusher, ok := w.(http.Flusher)
+
+		writers := []io.Writer{sink}
 		if ok {
-			_, _ = io.Copy(io.MultiWriter(&flushWriter{w: w, flusher: flusher}, sink), resp.Body)
+			writers = append([]io.Writer{&flushWriter{w: w, flusher: flusher}}, writers...)
 		} else {
 			s.logger.Warn("streaming messages: ResponseWriter does not support Flush")
-			_, _ = io.Copy(io.MultiWriter(w, sink), resp.Body)
+			writers = append([]io.Writer{w}, writers...)
 		}
+		if bodySink, ok := pctx.Metadata[plugin.MetaStreamBodySink].(io.Writer); ok {
+			writers = append(writers, bodySink)
+		}
+		_, _ = io.Copy(io.MultiWriter(writers...), resp.Body)
 
 		if s.appKeyStore != nil {
 			if key, ok := appkey.FromContext(r.Context()); ok {
@@ -531,6 +542,7 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		_, _ = w.Write(rawBody)
+		pctx.Metadata["response_body"] = rawBody
 
 		if s.appKeyStore != nil {
 			if key, ok := appkey.FromContext(r.Context()); ok {
@@ -621,6 +633,8 @@ func (s *Server) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	pctx.Metadata["response_body"] = resp.RawBody
+
 	// Run transport post-hooks.
 	if s.chain != nil {
 		s.chain.RunPostHTTP(pctx)
@@ -636,6 +650,7 @@ func (s *Server) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
+	applyResponseHeaders(w, pctx)
 	w.WriteHeader(resp.StatusCode)
 	_, _ = w.Write(resp.RawBody)
 }
@@ -665,6 +680,18 @@ func isStreamRequest(body []byte) bool {
 func injectAppKeyMetadata(ctx context.Context, metadata map[string]any) {
 	if key, ok := appkey.FromContext(ctx); ok {
 		metadata["app_key"] = key
+	}
+}
+
+// applyResponseHeaders merges any headers that plugins have set on the
+// RequestContext into the outbound HTTP response. Called just before
+// WriteHeader so that plugin-set headers (e.g. X-Request-Id) appear in
+// the response.
+func applyResponseHeaders(w http.ResponseWriter, pctx *plugin.RequestContext) {
+	for k, vs := range pctx.ResponseHeaders {
+		for _, v := range vs {
+			w.Header().Add(k, v)
+		}
 	}
 }
 
