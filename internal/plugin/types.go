@@ -36,12 +36,13 @@ type ObservabilityPlugin interface {
 
 // RequestContext carries request data through the plugin chain.
 type RequestContext struct {
-	Request   *http.Request
-	Provider  string
-	Model     string
-	Body      []byte
-	Metadata  map[string]any
-	StartTime time.Time
+	Request         *http.Request
+	Provider        string
+	Model           string
+	Body            []byte
+	Metadata        map[string]any
+	StartTime       time.Time
+	ResponseHeaders http.Header
 
 	// Short-circuit fields — set by PreHTTP plugins to reject a request
 	// before it reaches the provider.
@@ -66,6 +67,12 @@ type RequestTrace struct {
 	Error      error
 	Metadata   map[string]any
 }
+
+// MetaStreamBodySink is the well-known Metadata key for a streaming body
+// capture writer. Any TransportPlugin can stash an io.Writer under this key
+// in PreHTTP; the transport layer composes it into the io.MultiWriter chain
+// on paths that use io.Copy (e.g. Anthropic /v1/messages streaming).
+const MetaStreamBodySink = "_stream_body_sink"
 
 type ctxKey struct{}
 
