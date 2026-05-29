@@ -2,6 +2,7 @@ package bedrock
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -98,6 +99,56 @@ func TestMapModel_OverrideDefaultEntry(t *testing.T) {
 	want := "anthropic.claude-3-5-sonnet-20241022-v99:0"
 	if got != want {
 		t.Errorf("MapModel override = %q, want %q", got, want)
+	}
+}
+
+func TestPrepareBedrockBody(t *testing.T) {
+	tests := []struct {
+		name       string
+		body       string
+		wantHas    []string
+		wantAbsent []string
+	}{
+		{
+			name:       "strips model and stream, injects anthropic_version",
+			body:       `{"model":"claude-sonnet-4-6","stream":true,"max_tokens":10,"messages":[]}`,
+			wantHas:    []string{`"anthropic_version":"bedrock-2023-05-31"`, `"max_tokens":10`},
+			wantAbsent: []string{`"model"`, `"stream"`},
+		},
+		{
+			name:       "preserves existing anthropic_version",
+			body:       `{"model":"x","anthropic_version":"custom","max_tokens":10}`,
+			wantHas:    []string{`"anthropic_version":"custom"`},
+			wantAbsent: []string{`"model"`},
+		},
+		{
+			name:    "injects version when no model or stream present",
+			body:    `{"max_tokens":10,"messages":[]}`,
+			wantHas: []string{`"anthropic_version":"bedrock-2023-05-31"`},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := string(prepareBedrockBody([]byte(tt.body)))
+			for _, want := range tt.wantHas {
+				if !strings.Contains(got, want) {
+					t.Errorf("prepareBedrockBody() = %q, want it to contain %q", got, want)
+				}
+			}
+			for _, absent := range tt.wantAbsent {
+				if strings.Contains(got, absent) {
+					t.Errorf("prepareBedrockBody() = %q, want it to NOT contain %q", got, absent)
+				}
+			}
+		})
+	}
+}
+
+func TestPrepareBedrockBody_InvalidJSON(t *testing.T) {
+	// Invalid JSON is returned unchanged.
+	body := []byte(`not json`)
+	if got := prepareBedrockBody(body); string(got) != string(body) {
+		t.Errorf("prepareBedrockBody(invalid) = %q, want %q", got, body)
 	}
 }
 
