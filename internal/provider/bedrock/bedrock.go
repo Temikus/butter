@@ -91,10 +91,33 @@ func (p *Provider) HandleAnthropicNative(ctx context.Context, body []byte, _ htt
 
 	bedrockModel := p.MapModel(partial.Model)
 
+	// Bedrock requires anthropic_version but rejects model/stream in the body.
+	body = prepareBedrockBody(body)
+
 	if partial.Stream {
 		return p.invokeStream(ctx, bedrockModel, body)
 	}
 	return p.invoke(ctx, bedrockModel, body)
+}
+
+// prepareBedrockBody transforms an Anthropic Messages API body for Bedrock:
+// strips "model" and "stream" (handled by SDK params) and ensures
+// "anthropic_version" is present.
+func prepareBedrockBody(body []byte) []byte {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return body
+	}
+	delete(raw, "model")
+	delete(raw, "stream")
+	if _, ok := raw["anthropic_version"]; !ok {
+		raw["anthropic_version"] = json.RawMessage(`"bedrock-2023-05-31"`)
+	}
+	out, err := json.Marshal(raw)
+	if err != nil {
+		return body
+	}
+	return out
 }
 
 // invoke handles non-streaming InvokeModel calls.
