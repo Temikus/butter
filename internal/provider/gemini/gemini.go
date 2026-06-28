@@ -66,7 +66,7 @@ func (p *Provider) ChatCompletion(ctx context.Context, req *provider.ChatRequest
 
 	resp, err := p.client.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("gemini request failed: %w", err)
+		return nil, fmt.Errorf("gemini request failed: %w", &scrubbedError{err})
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -107,7 +107,7 @@ func (p *Provider) ChatCompletionStream(ctx context.Context, req *provider.ChatR
 
 	resp, err := p.client.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("gemini stream request failed: %w", err)
+		return nil, fmt.Errorf("gemini stream request failed: %w", &scrubbedError{err})
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -133,18 +133,30 @@ func (p *Provider) Passthrough(ctx context.Context, method, path string, body io
 	url := p.baseURL + path
 	req, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
-		return nil, err
+		return nil, &scrubbedError{err}
 	}
 	for k, vs := range headers {
 		for _, v := range vs {
 			req.Header.Add(k, v)
 		}
 	}
-	return p.client.Do(req)
+	// In passthrough mode the client may supply ?key= in the path; scrub it
+	// from any transport error so the credential can't leak to callers/logs.
+	// This runs only on the failure path — the success path is untouched, so
+	// proxy throughput is unaffected.
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return nil, &scrubbedError{err}
+	}
+	return resp, nil
 }
 
-// buildRequest constructs the Gemini API request with model in the URL path
-// and API key as a query parameter.
+// buildRequest constructs the Gemini API request with the model in the URL path.
+// The API key is sent via the x-goog-api-key header rather than a query
+// parameter so it never lands in the request URL — transport errors (DNS, TLS,
+// timeouts) embed the full URL via *url.Error, which the provider wraps and the
+// transport layer relays to clients and logs. Keeping the key out of the URL
+// prevents the upstream credential from leaking into those error paths.
 func (p *Provider) buildRequest(ctx context.Context, model string, stream bool, body []byte, apiKey string) (*http.Request, error) {
 	action := "generateContent"
 	query := ""
@@ -154,13 +166,7 @@ func (p *Provider) buildRequest(ctx context.Context, model string, stream bool, 
 	}
 
 	url := fmt.Sprintf("%s/v1beta/models/%s:%s", p.baseURL, model, action)
-	if apiKey != "" {
-		if query != "" {
-			url += "?" + query + "&key=" + apiKey
-		} else {
-			url += "?key=" + apiKey
-		}
-	} else if query != "" {
+	if query != "" {
 		url += "?" + query
 	}
 
@@ -169,7 +175,56 @@ func (p *Provider) buildRequest(ctx context.Context, model string, stream bool, 
 		return nil, fmt.Errorf("building request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if apiKey != "" {
+		req.Header.Set("x-goog-api-key", apiKey)
+	}
 	return req, nil
+}
+
+// scrubbedError wraps an error so that any Gemini API key in its message is
+// redacted, while still exposing the underlying error to errors.Is/errors.As
+// via Unwrap. Transport errors are *url.Error values that embed the request URL;
+// although buildRequest now keeps the key out of the URL, this is a
+// defense-in-depth guard so a key=<secret> query param can never reach
+// client-facing error bodies or logs.
+type scrubbedError struct{ err error }
+
+func (e *scrubbedError) Error() string { return scrubKeyQuery(e.err.Error()) }
+func (e *scrubbedError) Unwrap() error { return e.err }
+
+// scrubKeyQuery redacts the value of any "?key=" or "&key=" query parameter,
+// leaving the rest of the string untouched. It only matches query-scoped
+// occurrences (delimited by ? or &) so unrelated text like "monkey=..." is not
+// mangled.
+func scrubKeyQuery(s string) string {
+	const param = "key="
+	var b strings.Builder
+	pos := 0
+	for pos < len(s) {
+		i := strings.Index(s[pos:], param)
+		if i < 0 {
+			break
+		}
+		i += pos
+		// Only treat as a query parameter when delimited by ? or &.
+		if i == 0 || (s[i-1] != '?' && s[i-1] != '&') {
+			b.WriteString(s[pos : i+len(param)])
+			pos = i + len(param)
+			continue
+		}
+		valStart := i + len(param)
+		valEnd := valStart
+		for valEnd < len(s) && s[valEnd] != '&' && s[valEnd] != '"' && s[valEnd] != ' ' {
+			valEnd++
+		}
+		b.WriteString(s[pos:valStart])
+		if valEnd > valStart {
+			b.WriteString("REDACTED")
+		}
+		pos = valEnd
+	}
+	b.WriteString(s[pos:])
+	return b.String()
 }
 
 func extractErrorMessage(body []byte) string {

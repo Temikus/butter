@@ -2,6 +2,7 @@ package gemini
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -51,8 +52,11 @@ func TestChatCompletion(t *testing.T) {
 		if !strings.Contains(r.URL.Path, "gemini-2.0-flash") {
 			t.Errorf("expected path to contain model name, got %s", r.URL.Path)
 		}
-		if r.URL.Query().Get("key") != "test-key" {
-			t.Errorf("expected key=test-key query param, got %s", r.URL.RawQuery)
+		if got := r.Header.Get("x-goog-api-key"); got != "test-key" {
+			t.Errorf("expected x-goog-api-key=test-key header, got %s", got)
+		}
+		if r.URL.Query().Get("key") != "" {
+			t.Errorf("API key must not appear in the URL, got %s", r.URL.RawQuery)
 		}
 
 		// Verify request body is translated.
@@ -219,8 +223,11 @@ func TestBuildRequest_URLConstruction(t *testing.T) {
 	if req.URL.Path != "/v1beta/models/gemini-2.0-flash:generateContent" {
 		t.Errorf("unexpected path: %s", req.URL.Path)
 	}
-	if req.URL.Query().Get("key") != "my-key" {
-		t.Errorf("expected key=my-key, got %s", req.URL.RawQuery)
+	if req.Header.Get("x-goog-api-key") != "my-key" {
+		t.Errorf("expected x-goog-api-key=my-key header, got %s", req.Header.Get("x-goog-api-key"))
+	}
+	if req.URL.Query().Get("key") != "" {
+		t.Errorf("API key must not appear in URL, got %s", req.URL.RawQuery)
 	}
 	if req.URL.Query().Get("alt") != "" {
 		t.Error("non-streaming should not have alt=sse")
@@ -237,7 +244,52 @@ func TestBuildRequest_URLConstruction(t *testing.T) {
 	if req.URL.Query().Get("alt") != "sse" {
 		t.Errorf("streaming should have alt=sse, got %s", req.URL.RawQuery)
 	}
-	if req.URL.Query().Get("key") != "my-key" {
-		t.Errorf("expected key=my-key, got %s", req.URL.RawQuery)
+	if req.Header.Get("x-goog-api-key") != "my-key" {
+		t.Errorf("expected x-goog-api-key=my-key header, got %s", req.Header.Get("x-goog-api-key"))
+	}
+	if req.URL.Query().Get("key") != "" {
+		t.Errorf("API key must not appear in URL, got %s", req.URL.RawQuery)
+	}
+}
+
+func TestScrubKeyQuery(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{
+			in:   `Post "https://generativelanguage.googleapis.com/v1beta/models/x:generateContent?key=AIzaSecret": dial tcp: timeout`,
+			want: `Post "https://generativelanguage.googleapis.com/v1beta/models/x:generateContent?key=REDACTED": dial tcp: timeout`,
+		},
+		{
+			in:   `https://host/path?alt=sse&key=AIzaSecret&foo=bar`,
+			want: `https://host/path?alt=sse&key=REDACTED&foo=bar`,
+		},
+		{
+			in:   `no secret here`,
+			want: `no secret here`,
+		},
+		{
+			in:   `trailing key= with empty value`,
+			want: `trailing key= with empty value`,
+		},
+		{
+			// "key=" inside an unrelated token must not be redacted.
+			in:   `field "monkey=banana" not found`,
+			want: `field "monkey=banana" not found`,
+		},
+	}
+	for _, c := range cases {
+		if got := scrubKeyQuery(c.in); got != c.want {
+			t.Errorf("scrubKeyQuery(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestScrubbedError_UnwrapsChain(t *testing.T) {
+	sentinel := errors.New("dial tcp: i/o timeout")
+	wrapped := fmt.Errorf("gemini request failed: %w", &scrubbedError{sentinel})
+	if !errors.Is(wrapped, sentinel) {
+		t.Error("scrubbedError should preserve the underlying error for errors.Is")
 	}
 }
