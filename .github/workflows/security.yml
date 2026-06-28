@@ -41,7 +41,7 @@ jobs:
       - name: Install betterleaks
         run: |
           # renovate: datasource=github-releases depName=betterleaks/betterleaks
-          VERSION="v1.1.2"
+          VERSION="v1.6.0"
           curl -sSfL "https://github.com/betterleaks/betterleaks/releases/download/${VERSION}/betterleaks_${VERSION#v}_linux_x64.tar.gz" \
             | tar -xz -C /usr/local/bin betterleaks
       - name: Run betterleaks
