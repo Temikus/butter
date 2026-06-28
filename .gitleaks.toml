@@ -1,0 +1,29 @@
+title = "butter gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Documentation examples with placeholder app keys (btr_ prefix)"
+regexes = [
+    '''Authorization: Bearer btr_[a-zA-Z0-9_-]+''',
+    '''btr_[a-z0-9]+''',
+]
+paths = [
+    '''README\.md''',
+    '''docs/.*\.md''',
+    '''design/.*\.md''',
+]
+
+[[allowlists]]
+description = "Example config uses ${ENV_VAR} substitution, never real secrets"
+paths = [
+    '''config\.example\.yaml''',
+]
+
+[[allowlists]]
+description = "Test fixtures and mock servers use obviously-fake credentials"
+paths = [
+    '''.*_test\.go''',
+    '''tests/.*''',
+]

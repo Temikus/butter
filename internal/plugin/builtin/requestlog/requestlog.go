@@ -116,7 +116,7 @@ func (p *Plugin) PreHTTP(pctx *plugin.RequestContext) error {
 	if p.logBodies {
 		pctx.Metadata[metaRequestBody] = pctx.Body
 
-		bufp := p.bufPool.Get().(*[]byte)
+		bufp := p.bufPool.Get().(*[]byte) //nolint:errcheck // bufPool only ever holds *[]byte
 		*bufp = (*bufp)[:0]
 		cw := &cappedWriter{buf: bufp, max: p.bodyMaxBytes}
 		pctx.Metadata[metaStreamBodyBuf] = cw

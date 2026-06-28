@@ -111,7 +111,7 @@ func (s *Server) handleAppKeyPurge(w http.ResponseWriter, r *http.Request) {
 // Body: {"expires_at": "<RFC3339>"} or {"ttl_seconds": N}.
 // Setting expires_at to null or ttl_seconds to 0 clears expiry. A past
 // timestamp is accepted (the key becomes inactive immediately).
-func (s *Server) handleAppKeyUpdate(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleAppKeyUpdate(w http.ResponseWriter, r *http.Request) { //nolint:gocyclo // handles multiple optional update fields (expiry/scopes) with validation
 	key := r.PathValue("key")
 
 	var req struct {

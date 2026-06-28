@@ -1,0 +1,30 @@
+version: "2"
+
+linters:
+  enable:
+    - errcheck
+    - gocyclo
+    - gosec
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+  settings:
+    errcheck:
+      check-type-assertions: true
+    gocyclo:
+      min-complexity: 15
+    gosec:
+      excludes:
+        - G104 # Duplicates the errcheck linter
+      # Site-specific false positives (config-file read, load-balancing RNG,
+      # JSON error responses) are annotated with inline //nolint:gosec directives.
+  exclusions:
+    rules:
+      - linters: [gosec]
+        path: _test\.go
+      - linters: [gocyclo]
+        path: _test\.go
+      # Type assertions in test mock servers (e.g. w.(http.Flusher)) are safe.
+      - linters: [errcheck]
+        path: _test\.go

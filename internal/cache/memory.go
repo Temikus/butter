@@ -42,7 +42,7 @@ func (m *Memory) Get(key string) []byte {
 		return nil
 	}
 
-	ent := el.Value.(*entry)
+	ent := el.Value.(*entry) //nolint:errcheck // evictList only ever holds *entry
 	if m.now().After(ent.expiresAt) {
 		m.removeElement(el)
 		return nil
@@ -60,7 +60,7 @@ func (m *Memory) Set(key string, value []byte, ttl time.Duration) {
 	defer m.mu.Unlock()
 
 	if el, ok := m.items[key]; ok {
-		ent := el.Value.(*entry)
+		ent := el.Value.(*entry) //nolint:errcheck // evictList only ever holds *entry
 		ent.value = value
 		ent.expiresAt = m.now().Add(ttl)
 		m.evictList.MoveToFront(el)
@@ -96,6 +96,6 @@ func (m *Memory) removeOldest() {
 
 func (m *Memory) removeElement(el *list.Element) {
 	m.evictList.Remove(el)
-	ent := el.Value.(*entry)
+	ent := el.Value.(*entry) //nolint:errcheck // evictList only ever holds *entry
 	delete(m.items, ent.key)
 }
