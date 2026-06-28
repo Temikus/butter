@@ -1,0 +1,68 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Weekly scan to catch new CVEs in dependencies / stdlib
+    - cron: "0 8 * * 1"
+
+# Least privilege: read the repo, write findings to the Security tab.
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  gosec:
+    name: Go Security (SAST)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # Third-party action pinned to a full commit SHA (supply-chain hardening).
+      - name: Run gosec
+        uses: securego/gosec@9e6a9843d7a4a6e3e9a8539b02612c8a4aa3f889 # v2.27.1
+        with:
+          args: "-no-fail -fmt sarif -out results.sarif ./..."
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: results.sarif
+
+  betterleaks:
+    name: Secret Detection
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      # Installed by version-pinned release tarball rather than a marketplace
+      # action — avoids depending on a scanner action's mutable tags.
+      - name: Install betterleaks
+        run: |
+          # renovate: datasource=github-releases depName=betterleaks/betterleaks
+          VERSION="v1.1.2"
+          curl -sSfL "https://github.com/betterleaks/betterleaks/releases/download/${VERSION}/betterleaks_${VERSION#v}_linux_x64.tar.gz" \
+            | tar -xz -C /usr/local/bin betterleaks
+      - name: Run betterleaks
+        run: betterleaks git . --exit-code 1
+
+  grype:
+    name: Vulnerability Scan (Grype)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # Third-party action pinned to a full commit SHA (supply-chain hardening).
+      - name: Grype filesystem scan
+        uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
+        id: grype
+        with:
+          path: "."
+          severity-cutoff: "high"
+          only-fixed: "true"
+          output-format: "sarif"
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: ${{ steps.grype.outputs.sarif }}

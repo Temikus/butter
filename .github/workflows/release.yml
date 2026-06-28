@@ -5,8 +5,10 @@ on:
     tags:
       - "v*"
 
+# id-token:write is required for cosign keyless OIDC signing of the checksums file.
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   release:
@@ -20,8 +22,16 @@ jobs:
         with:
           go-version: "1.26"
 
+      # cosign for keyless signing of the checksums file (GoReleaser signs: block).
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      # syft for SBOM generation (GoReleaser sboms: block shells out to syft).
+      - name: Install syft
+        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v7
+        uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7.2.2
         with:
           version: "~> v2"
           args: release --clean

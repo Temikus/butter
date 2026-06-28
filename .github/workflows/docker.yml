@@ -6,9 +6,14 @@ on:
     tags:
       - "v*"
 
+# Least privilege. id-token/attestations are required for cosign keyless
+# signing and SLSA build provenance; security-events for the Grype SARIF upload.
 permissions:
   contents: read
   packages: write
+  id-token: write
+  attestations: write
+  security-events: write
 
 jobs:
   build-push:
@@ -18,7 +23,7 @@ jobs:
 
       - name: Docker meta
         id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
         with:
           images: ghcr.io/temikus/butter
           tags: |
@@ -26,18 +31,25 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
+
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
 
       - name: Log in to GHCR
-        uses: docker/login-action@v4
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
       - name: Build and push
-        uses: docker/build-push-action@v7
+        id: build
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         env:
           BUILD_VERSION: ${{ github.ref_name }}
           BUILD_COMMIT: ${{ github.sha }}
@@ -54,3 +66,33 @@ jobs:
             DATE=${{ env.BUILD_DATE }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Scan the pushed distroless image (by immutable digest) before signing.
+      - name: Scan container image
+        uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
+        id: grype-scan
+        with:
+          image: "ghcr.io/temikus/butter@${{ steps.build.outputs.digest }}"
+          severity-cutoff: "high"
+          only-fixed: "true"
+          output-format: "sarif"
+
+      - name: Upload container scan SARIF
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: ${{ steps.grype-scan.outputs.sarif }}
+
+      # Sign by digest (immutable) rather than tag (mutable). Keyless OIDC — no keys.
+      - name: Sign Docker image
+        run: cosign sign --yes "ghcr.io/temikus/butter@${DIGEST}"
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+
+      # Attach SLSA build provenance attestation to the image.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: ghcr.io/temikus/butter
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true

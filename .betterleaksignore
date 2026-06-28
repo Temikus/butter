@@ -1,0 +1,8 @@
+# betterleaks allowlist — known false positives.
+#
+# One finding fingerprint per line, in the form:
+#   <commit-sha>:<file-path>:<rule-id>:<line>
+# Run `betterleaks git .` to obtain the fingerprint for a finding you have
+# confirmed is a false positive, then paste it here with a short comment.
+#
+# (No confirmed false positives yet — broad allowlists live in .gitleaks.toml.)

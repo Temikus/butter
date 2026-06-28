@@ -40,7 +40,7 @@ import (
 	"github.com/temikus/butter/internal/transport"
 )
 
-func main() {
+func main() { //nolint:gocyclo // composition root: wires config, providers, plugins and server
 	if len(os.Args) > 1 && os.Args[1] == "version" {
 		fmt.Println(version.String())
 		os.Exit(0)

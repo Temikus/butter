@@ -72,7 +72,7 @@ func (e *Engine) SetCache(c cache.Cache, ttl time.Duration) {
 }
 
 // Dispatch handles a non-streaming chat completion request.
-func (e *Engine) Dispatch(ctx context.Context, rawBody []byte) (*provider.ChatResponse, error) {
+func (e *Engine) Dispatch(ctx context.Context, rawBody []byte) (*provider.ChatResponse, error) { //nolint:gocyclo // core routing/dispatch; provider resolution and failover branching are inherent
 	st := e.st.Load()
 	req, providerNames, err := e.parseAndRoute(st, rawBody)
 	if err != nil {
@@ -353,7 +353,7 @@ func (e *Engine) selectKey(st *engineState, providerName, model string) string {
 	}
 
 	// Weighted random selection.
-	r := rand.IntN(totalWeight)
+	r := rand.IntN(totalWeight) //nolint:gosec // G404: non-cryptographic load balancing; crypto/rand is unnecessary on this hot path. #nosec G404
 	for _, k := range eligible {
 		r -= k.Weight
 		if r < 0 {
@@ -533,7 +533,7 @@ func (e *Engine) ListModels() *provider.ModelListResponse {
 // DispatchAnthropicNative routes an Anthropic Messages API request to providers
 // that implement AnthropicNativeHandler, with failover support.
 // Used by the /v1/messages endpoint to forward Claude Code requests.
-func (e *Engine) DispatchAnthropicNative(ctx context.Context, rawBody []byte, clientHeaders http.Header) (*http.Response, error) {
+func (e *Engine) DispatchAnthropicNative(ctx context.Context, rawBody []byte, clientHeaders http.Header) (*http.Response, error) { //nolint:gocyclo // native Anthropic dispatch with cross-provider failover branching
 	st := e.st.Load()
 
 	// Minimal parse to extract model for routing.

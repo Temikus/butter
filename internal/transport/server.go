@@ -443,7 +443,7 @@ func (s *Server) handleNativePassthrough(w http.ResponseWriter, r *http.Request)
 
 // handleAnthropicMessages handles POST /v1/messages — the Anthropic Messages API
 // endpoint. Routes to providers via DispatchAnthropicNative with failover support.
-func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request) { //nolint:gocyclo // streaming vs non-streaming paths plus provider failover handling
 	body, err := io.ReadAll(r.Body)
 	_ = r.Body.Close()
 	if err != nil {
@@ -665,7 +665,7 @@ func (s *Server) handleModels(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) writeError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_, _ = fmt.Fprintf(w, `{"error":{"message":%q,"type":"proxy_error"}}`, msg)
+	_, _ = fmt.Fprintf(w, `{"error":{"message":%q,"type":"proxy_error"}}`, msg) //nolint:gosec // G705: application/json response; %q escapes the value and it is never served as HTML. #nosec G705
 }
 
 // isStreamRequest checks if the request body contains "stream": true.

@@ -36,6 +36,26 @@ checksum:
   name_template: "checksums.txt"
   algorithm: sha256
 
+# SBOM generation. Requires syft on PATH; release.yml installs it via
+# anchore/sbom-action/download-syft.
+sboms:
+  - artifacts: archive
+
+# Keyless cosign OIDC signing — no stored keys.
+# Requires id-token:write in release.yml and cosign-installer to run first.
+# Signs the checksums file; every archive hash is listed there.
+# cosign v3 bundle format (signature + certificate in a single .bundle file).
+signs:
+  - id: cosign
+    cmd: cosign
+    artifacts: checksum
+    signature: "${artifact}.bundle"
+    args:
+      - sign-blob
+      - --yes
+      - --bundle=${signature}
+      - ${artifact}
+
 changelog:
   sort: asc
   filters:

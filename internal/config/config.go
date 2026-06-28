@@ -125,7 +125,7 @@ type BackoffConfig struct {
 var envVarRegex = regexp.MustCompile(`\$\{([^}]+)\}`)
 
 func Load(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // G304: path is the operator-supplied -config flag, not untrusted input. #nosec G304
 	if err != nil {
 		return nil, fmt.Errorf("reading config file: %w", err)
 	}
@@ -148,7 +148,7 @@ func Load(path string) (*Config, error) {
 	return cfg, nil
 }
 
-func applyDefaults(cfg *Config) {
+func applyDefaults(cfg *Config) { //nolint:gocyclo // flat sequence of per-field default assignments
 	if cfg.Server.Address == "" {
 		cfg.Server.Address = ":8080"
 	}

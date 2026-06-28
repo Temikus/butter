@@ -1,0 +1,19 @@
+# Grype configuration for container image scanning.
+#
+# Butter ships on gcr.io/distroless/static-debian12:nonroot — it contains only
+# the statically-linked Go binary plus CA certificates, tzdata and /etc/passwd.
+# There is no shell, package manager, libc or OpenSSL, so the OS attack surface
+# is effectively nil; findings will almost always be Go-stdlib / module CVEs that
+# should be fixed by bumping go.mod (via Renovate) rather than ignored here.
+#
+# Add an entry below only to temporarily suppress a vulnerability whose fix is
+# tracked upstream but not yet released. Remove it once `go get -u` pulls the fix.
+#
+# Note: the CI scans set `only-fixed: true`, so unfixed CVEs (no patch released
+# yet) do not fail the build — they surface in the GitHub Security tab via SARIF
+# but are not a merge gate. This keeps CI green on vulnerabilities we cannot yet
+# act on; review the Security tab periodically for unfixed advisories.
+#
+# Last reviewed: 2026-06-28
+
+ignore: []
