@@ -1025,9 +1025,9 @@ type captureMetadataPlugin struct {
 	metadata map[string]any
 }
 
-func (p *captureMetadataPlugin) Name() string              { return "capture-metadata" }
-func (p *captureMetadataPlugin) Init(_ map[string]any) error { return nil }
-func (p *captureMetadataPlugin) Close() error              { return nil }
+func (p *captureMetadataPlugin) Name() string                            { return "capture-metadata" }
+func (p *captureMetadataPlugin) Init(_ map[string]any) error             { return nil }
+func (p *captureMetadataPlugin) Close() error                            { return nil }
 func (p *captureMetadataPlugin) PostHTTP(_ *plugin.RequestContext) error { return nil }
 func (p *captureMetadataPlugin) StreamChunk(_ *plugin.RequestContext, chunk []byte) ([]byte, error) {
 	return chunk, nil
@@ -1398,4 +1398,81 @@ func (p *capturePostMetadataPlugin) getMetadata() map[string]any {
 		cp[k] = v
 	}
 	return cp
+}
+
+// setupTestServerWithLimit builds a test server with an explicit request body cap.
+func setupTestServerWithLimit(t *testing.T, mockProviderURL string, maxBody int64) *httptest.Server {
+	t.Helper()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Address:         ":0",
+			ReadTimeout:     5 * time.Second,
+			WriteTimeout:    30 * time.Second,
+			MaxRequestBytes: maxBody,
+		},
+		Providers: map[string]config.ProviderConfig{
+			"openrouter": {
+				BaseURL: mockProviderURL,
+				Keys:    []config.KeyConfig{{Key: "test-key", Weight: 1}},
+			},
+		},
+		Routing: config.RoutingConfig{DefaultProvider: "openrouter"},
+	}
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	registry := provider.NewRegistry()
+	registry.Register(openrouter.New(mockProviderURL, nil))
+	engine := proxy.NewEngine(registry, cfg, logger, nil)
+	srv := transport.NewServer(&cfg.Server, engine, logger, nil)
+	return httptest.NewServer(srv.Handler())
+}
+
+func TestRequestBodyCapReturns413(t *testing.T) {
+	mockProvider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"id":"ok"}`)
+	}))
+	defer mockProvider.Close()
+
+	ts := setupTestServerWithLimit(t, mockProvider.URL, 1024) // 1 KiB cap
+	defer ts.Close()
+
+	endpoints := []string{"/v1/chat/completions", "/v1/messages", "/v1/embeddings"}
+	for _, ep := range endpoints {
+		t.Run("oversized"+ep, func(t *testing.T) {
+			oversized := `{"model":"m","messages":[{"role":"user","content":"` + strings.Repeat("a", 4096) + `"}]}`
+			resp, err := http.Post(ts.URL+ep, "application/json", strings.NewReader(oversized))
+			if err != nil {
+				t.Fatalf("request failed: %v", err)
+			}
+			defer func() { _ = resp.Body.Close() }()
+			if resp.StatusCode != http.StatusRequestEntityTooLarge {
+				body, _ := io.ReadAll(resp.Body)
+				t.Fatalf("expected 413, got %d: %s", resp.StatusCode, body)
+			}
+		})
+	}
+}
+
+func TestRequestBodyWithinCapPasses(t *testing.T) {
+	mockProvider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"id":"ok","object":"chat.completion"}`)
+	}))
+	defer mockProvider.Close()
+
+	ts := setupTestServerWithLimit(t, mockProvider.URL, 1<<20) // 1 MiB cap
+	defer ts.Close()
+
+	reqBody := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Hi"}]}`
+	resp, err := http.Post(ts.URL+"/v1/chat/completions", "application/json", strings.NewReader(reqBody))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+	}
 }

@@ -138,6 +138,9 @@ routing:
 	if cfg.Server.WriteTimeout != 120*time.Second {
 		t.Errorf("expected default 120s write timeout, got %v", cfg.Server.WriteTimeout)
 	}
+	if cfg.Server.MaxRequestBytes != DefaultMaxRequestBytes {
+		t.Errorf("expected default max request bytes %d, got %d", DefaultMaxRequestBytes, cfg.Server.MaxRequestBytes)
+	}
 	if cfg.Routing.Failover.MaxRetries != 3 {
 		t.Errorf("expected default 3 retries, got %d", cfg.Routing.Failover.MaxRetries)
 	}

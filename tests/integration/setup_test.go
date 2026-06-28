@@ -40,6 +40,7 @@ type serverCfg struct {
 	appKeysEnabled bool
 	appKeyRequire  bool
 	appKeyStore    *appkey.Store // set by build() when appKeysEnabled
+	maxReqBytes    int64         // 0 → server default applies
 }
 
 func newServerCfg() *serverCfg {
@@ -71,6 +72,11 @@ func (c *serverCfg) withFailover() *serverCfg {
 
 func (c *serverCfg) withCache() *serverCfg {
 	c.cacheEnabled = true
+	return c
+}
+
+func (c *serverCfg) withMaxRequestBytes(n int64) *serverCfg {
+	c.maxReqBytes = n
 	return c
 }
 
@@ -114,8 +120,9 @@ func (c *serverCfg) build(t *testing.T) *httptest.Server {
 
 	cfg := &config.Config{
 		Server: config.ServerConfig{
-			ReadTimeout:  5 * time.Second,
-			WriteTimeout: 5 * time.Second,
+			ReadTimeout:     5 * time.Second,
+			WriteTimeout:    5 * time.Second,
+			MaxRequestBytes: c.maxReqBytes,
 		},
 		Providers: provCfgs,
 		Routing: config.RoutingConfig{

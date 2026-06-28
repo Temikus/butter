@@ -459,3 +459,67 @@ func postChat(t *testing.T, baseURL, key string) int {
 	_, _ = io.Copy(io.Discard, resp.Body)
 	return resp.StatusCode
 }
+
+func TestAppKeyEndpoints_BodyCap413(t *testing.T) {
+	mock := mockOpenRouter()
+	defer mock.Close()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Address:         ":0",
+			ReadTimeout:     5 * time.Second,
+			WriteTimeout:    30 * time.Second,
+			MaxRequestBytes: 1024, // 1 KiB cap
+		},
+		Providers: map[string]config.ProviderConfig{
+			"openrouter": {BaseURL: mock.URL, Keys: []config.KeyConfig{{Key: "test-key", Weight: 1}}},
+		},
+		Routing: config.RoutingConfig{DefaultProvider: "openrouter"},
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	registry := provider.NewRegistry()
+	registry.Register(openrouter.New(mock.URL, nil))
+	store := appkey.NewStore(logger)
+	engine := proxy.NewEngine(registry, cfg, logger, nil)
+	srv := transport.NewServer(&cfg.Server, engine, logger, nil,
+		transport.WithAppKeyStore(store, "X-Butter-App-Key", false))
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	rec, err := store.Vend("victim", 0)
+	if err != nil {
+		t.Fatalf("Vend: %v", err)
+	}
+
+	oversized := `{"label":"` + strings.Repeat("a", 4096) + `"}`
+	want := http.StatusRequestEntityTooLarge
+
+	assert413 := func(t *testing.T, resp *http.Response, err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode != want {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("expected 413, got %d: %s", resp.StatusCode, body)
+		}
+	}
+
+	t.Run("create", func(t *testing.T) {
+		resp, err := http.Post(ts.URL+"/v1/app-keys", "application/json", strings.NewReader(oversized))
+		assert413(t, resp, err)
+	})
+
+	t.Run("rotate", func(t *testing.T) {
+		resp, err := http.Post(ts.URL+"/v1/app-keys/"+rec.Key+"/rotate", "application/json", strings.NewReader(oversized))
+		assert413(t, resp, err)
+	})
+
+	t.Run("update", func(t *testing.T) {
+		req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/v1/app-keys/"+rec.Key, strings.NewReader(oversized))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		assert413(t, resp, err)
+	})
+}

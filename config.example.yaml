@@ -2,6 +2,10 @@ server:
   address: ":8080"
   read_timeout: 30s
   write_timeout: 120s
+  # Maximum inbound request body size. Bodies over this get 413. Defaults to
+  # 32MiB (33554432) — matching Anthropic's 32MB request limit — so multimodal
+  # payloads pass while bounding memory. Set negative to disable the cap.
+  max_request_bytes: 33554432
 
 providers:
   openrouter:

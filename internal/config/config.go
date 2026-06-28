@@ -80,7 +80,17 @@ type ServerConfig struct {
 	Address      string        `yaml:"address"`
 	ReadTimeout  time.Duration `yaml:"read_timeout"`
 	WriteTimeout time.Duration `yaml:"write_timeout"`
+	// MaxRequestBytes caps the size of an inbound request body (bytes). Requests
+	// exceeding it receive 413. Defaults to DefaultMaxRequestBytes. A negative
+	// value disables the cap; 0 is treated as unset and gets the default.
+	MaxRequestBytes int64 `yaml:"max_request_bytes"`
 }
+
+// DefaultMaxRequestBytes is the default inbound request body cap: 32 MiB. This
+// matches the Anthropic Messages API's documented 32 MB hard limit, so the proxy
+// accepts any multimodal/base64 payload the upstream providers themselves accept
+// while bounding per-request memory against exhaustion DoS.
+const DefaultMaxRequestBytes int64 = 32 << 20
 
 type ProviderConfig struct {
 	BaseURL        string            `yaml:"base_url"`
@@ -157,6 +167,9 @@ func applyDefaults(cfg *Config) { //nolint:gocyclo // flat sequence of per-field
 	}
 	if cfg.Server.WriteTimeout == 0 {
 		cfg.Server.WriteTimeout = 120 * time.Second
+	}
+	if cfg.Server.MaxRequestBytes == 0 {
+		cfg.Server.MaxRequestBytes = DefaultMaxRequestBytes
 	}
 	if cfg.Routing.Failover.MaxRetries == 0 {
 		cfg.Routing.Failover.MaxRetries = 3

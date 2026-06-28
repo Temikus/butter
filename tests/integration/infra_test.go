@@ -73,6 +73,30 @@ func TestPassthrough_UnknownProviderReturns502(t *testing.T) {
 	}
 }
 
+// TestPassthrough_OverCapFailsDispatch verifies the native passthrough relay is
+// bounded: an over-cap body trips MaxBytesReader while copying to the upstream,
+// failing the dispatch (502) rather than forwarding unbounded.
+func TestPassthrough_OverCapFailsDispatch(t *testing.T) {
+	mock := mockOpenAI(t, nil)
+	butter := newServerCfg().
+		withProvider("openai", mock.URL).
+		withMaxRequestBytes(1024). // 1 KiB cap
+		build(t)
+
+	oversized := strings.Repeat("a", 4096)
+	resp, err := http.Post(butter.URL+"/native/openai/v1/chat/completions",
+		"application/json", strings.NewReader(oversized))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadGateway {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 502 for over-cap passthrough, got %d: %s", resp.StatusCode, body)
+	}
+}
+
 func TestContentType_JSONOnError(t *testing.T) {
 	mock := mockOpenAI(t, errorHandler(http.StatusInternalServerError))
 	butter := newServerCfg().

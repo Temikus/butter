@@ -30,6 +30,7 @@ type Server struct {
 	appKeyHeader   string
 	appKeyRequire  bool
 	appKeyTTL      time.Duration // default TTL applied to vended keys (0 = none)
+	maxBodyBytes   int64         // inbound request body cap; <0 disables it
 }
 
 // Option configures optional Server behavior.
@@ -66,9 +67,15 @@ func WithAppKeyDefaultTTL(ttl time.Duration) Option {
 
 func NewServer(cfg *config.ServerConfig, engine *proxy.Engine, logger *slog.Logger, chain *plugin.Chain, opts ...Option) *Server {
 	s := &Server{
-		engine: engine,
-		logger: logger,
-		chain:  chain,
+		engine:       engine,
+		logger:       logger,
+		chain:        chain,
+		maxBodyBytes: cfg.MaxRequestBytes,
+	}
+	// Guard against an unset cap reaching MaxBytesReader as a literal 0, which
+	// would reject every body. A negative value is an explicit "no cap".
+	if s.maxBodyBytes == 0 {
+		s.maxBodyBytes = config.DefaultMaxRequestBytes
 	}
 
 	for _, opt := range opts {
@@ -196,9 +203,8 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		s.writeError(w, http.StatusBadRequest, "failed to read request body")
+	body, ok := s.readLimitedBody(w, r)
+	if !ok {
 		return
 	}
 	defer func() { _ = r.Body.Close() }()
@@ -402,6 +408,13 @@ func (s *Server) handleNativePassthrough(w http.ResponseWriter, r *http.Request)
 	fwdHeaders.Del("Host")
 	fwdHeaders.Del("Connection")
 
+	// Cap the relayed body. Passthrough streams r.Body to the upstream rather
+	// than buffering, so wrapping it bounds the relay. The cap is enforced lazily:
+	// the MaxBytesReader returns an error only when DispatchPassthrough reads past
+	// the limit while copying to the upstream, which fails the dispatch and is
+	// reported below as a 502. The guarantee here is "never forward unbounded",
+	// not a precise 413 (the response is already a passthrough).
+	s.limitBody(w, r)
 	resp, err := s.engine.DispatchPassthrough(r.Context(), providerName, r.Method, upstreamPath, r.Body, fwdHeaders)
 	if err != nil {
 		s.logger.Error("passthrough dispatch failed", "provider", providerName, "error", err)
@@ -444,10 +457,9 @@ func (s *Server) handleNativePassthrough(w http.ResponseWriter, r *http.Request)
 // handleAnthropicMessages handles POST /v1/messages — the Anthropic Messages API
 // endpoint. Routes to providers via DispatchAnthropicNative with failover support.
 func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request) { //nolint:gocyclo // streaming vs non-streaming paths plus provider failover handling
-	body, err := io.ReadAll(r.Body)
+	body, ok := s.readLimitedBody(w, r)
 	_ = r.Body.Close()
-	if err != nil {
-		s.writeError(w, http.StatusBadRequest, "failed to read request body")
+	if !ok {
 		return
 	}
 
@@ -597,9 +609,8 @@ func (s *Server) writeShortCircuit(w http.ResponseWriter, pctx *plugin.RequestCo
 }
 
 func (s *Server) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		s.writeError(w, http.StatusBadRequest, "failed to read request body")
+	body, ok := s.readLimitedBody(w, r)
+	if !ok {
 		return
 	}
 	defer func() { _ = r.Body.Close() }()
@@ -660,6 +671,45 @@ func (s *Server) handleModels(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(result)
+}
+
+// limitBody wraps r.Body with http.MaxBytesReader so reads past the configured
+// cap fail instead of buffering unbounded data into memory. A negative cap
+// disables the limit. Safe to call before either io.ReadAll or json.Decode.
+func (s *Server) limitBody(w http.ResponseWriter, r *http.Request) {
+	if s.maxBodyBytes < 0 {
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, s.maxBodyBytes)
+}
+
+// tooLarge reports whether err is a request-body cap violation and, if so,
+// writes a 413 response. A nil err returns false. Callers must return without
+// writing further when it returns true.
+func (s *Server) tooLarge(w http.ResponseWriter, err error) bool {
+	var maxErr *http.MaxBytesError
+	if errors.As(err, &maxErr) {
+		s.writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
+		return true
+	}
+	return false
+}
+
+// readLimitedBody reads the request body under the configured cap. On success it
+// returns the bytes and ok=true. On a cap violation it writes 413, on any other
+// read error it writes 400; in both failure cases ok is false and the caller
+// must return without writing further.
+func (s *Server) readLimitedBody(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
+	s.limitBody(w, r)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		if s.tooLarge(w, err) {
+			return nil, false
+		}
+		s.writeError(w, http.StatusBadRequest, "failed to read request body")
+		return nil, false
+	}
+	return body, true
 }
 
 func (s *Server) writeError(w http.ResponseWriter, status int, msg string) {

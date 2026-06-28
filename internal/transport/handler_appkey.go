@@ -21,8 +21,12 @@ func (s *Server) handleAppKeyCreate(w http.ResponseWriter, r *http.Request) {
 		AllowedModels    []string `json:"allowed_models,omitempty"`
 		AllowedProviders []string `json:"allowed_providers,omitempty"`
 	}
-	// Best-effort decode; all fields are optional.
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	// Best-effort decode; all fields are optional. A cap violation is still a
+	// hard 413; other decode errors (malformed/empty body) are tolerated.
+	s.limitBody(w, r)
+	if err := json.NewDecoder(r.Body).Decode(&req); s.tooLarge(w, err) {
+		return
+	}
 
 	ttl := s.appKeyTTL
 	if req.TTLSeconds != nil {
@@ -120,7 +124,11 @@ func (s *Server) handleAppKeyUpdate(w http.ResponseWriter, r *http.Request) { //
 		AllowedModels    *[]string       `json:"allowed_models,omitempty"`
 		AllowedProviders *[]string       `json:"allowed_providers,omitempty"`
 	}
+	s.limitBody(w, r)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if s.tooLarge(w, err) {
+			return
+		}
 		s.writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -208,7 +216,11 @@ func (s *Server) handleAppKeyRotate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Label string `json:"label"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	// Best-effort decode; the label is optional. Cap violation → 413.
+	s.limitBody(w, r)
+	if err := json.NewDecoder(r.Body).Decode(&req); s.tooLarge(w, err) {
+		return
+	}
 
 	oldSnap, newSnap, err := s.appKeyStore.Rotate(key, req.Label)
 	if err != nil {
