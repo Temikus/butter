@@ -44,6 +44,7 @@ Your App ──▶ Butter ──▶ OpenAI / Anthropic / Bedrock / Gemini / Groq
 - Config hot-reload (mtime polling, atomic engine swap — no restart required)
 - **Application keys** for usage tracking and attribution — vend `btr_` tokens, track per-key request/token counts, optional enforcement via `require_key`, key lifecycle (revoke/rotate/expiry), per-key rate limiting, per-key Prometheus metrics, streaming token extraction (Anthropic), structured audit log, and per-key scopes (model/provider restrictions with 403 enforcement)
 - Per-provider `credential_mode` — `stored` (default, inject managed keys) or `passthrough` (forward client's own auth headers unchanged)
+- Request body size cap (`server.max_request_bytes`, default 32 MiB) — bounds inbound bodies against memory-exhaustion DoS; over-cap requests get `413` (set negative to disable)
 - Raw HTTP passthrough for provider-native endpoints (`/native/{provider}/*`)
 - Health check endpoint (`/healthz`)
 - Graceful shutdown (SIGINT/SIGTERM)
@@ -96,6 +97,7 @@ server:
   address: ":8080"
   read_timeout: 30s
   write_timeout: 120s
+  max_request_bytes: 33554432  # 32 MiB inbound body cap; over-cap requests get 413 (negative disables)
 
 providers:
   openai:

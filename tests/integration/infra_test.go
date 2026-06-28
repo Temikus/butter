@@ -73,6 +73,38 @@ func TestPassthrough_UnknownProviderReturns502(t *testing.T) {
 	}
 }
 
+// TestPassthrough_OverCapFailsDispatch verifies the native passthrough relay is
+// bounded: an over-cap body trips MaxBytesReader while copying to the upstream,
+// failing the dispatch (502) rather than forwarding unbounded.
+//
+// Note on timing: this test takes ~500ms even though the request itself returns
+// in ~2ms. Because the handler returns without reading the full inbound body
+// (MaxBytesReader caps it), net/http performs a "lingering close" on the
+// connection — it holds it open for rstAvoidanceDelay (a hard-coded 500ms in the
+// stdlib) so the client can read the 502 before a TCP RST. httptest.Server.Close()
+// waits on that. The delay is a fixed stdlib constant, not load-dependent, so the
+// test is deterministic (not flaky on slow CI).
+func TestPassthrough_OverCapFailsDispatch(t *testing.T) {
+	mock := mockOpenAI(t, nil)
+	butter := newServerCfg().
+		withProvider("openai", mock.URL).
+		withMaxRequestBytes(1024). // 1 KiB cap
+		build(t)
+
+	oversized := strings.Repeat("a", 4096)
+	resp, err := http.Post(butter.URL+"/native/openai/v1/chat/completions",
+		"application/json", strings.NewReader(oversized))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadGateway {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 502 for over-cap passthrough, got %d: %s", resp.StatusCode, body)
+	}
+}
+
 func TestContentType_JSONOnError(t *testing.T) {
 	mock := mockOpenAI(t, errorHandler(http.StatusInternalServerError))
 	butter := newServerCfg().
