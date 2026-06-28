@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Temikus/butter/releases"><img src="https://img.shields.io/github/v/release/Temikus/butter" alt="Release"></a> <a href="https://github.com/Temikus/butter/actions/workflows/ci.yml"><img src="https://github.com/Temikus/butter/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a> <a href="https://goreportcard.com/report/github.com/temikus/butter"><img src="https://goreportcard.com/badge/github.com/temikus/butter" alt="Go Report Card"></a> <a href="https://github.com/Temikus/butter/blob/main/go.mod"><img src="https://img.shields.io/github/go-mod/go-version/Temikus/butter" alt="Go Version"></a> <a href="https://github.com/Temikus/butter/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Temikus/butter" alt="License"></a>
+  <a href="https://github.com/Temikus/butter/releases"><img src="https://img.shields.io/github/v/release/Temikus/butter" alt="Release"></a> <a href="https://github.com/Temikus/butter/actions/workflows/ci.yml"><img src="https://github.com/Temikus/butter/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a> <a href="https://github.com/Temikus/butter/actions/workflows/security.yml"><img src="https://github.com/Temikus/butter/actions/workflows/security.yml/badge.svg?branch=main" alt="Security"></a> <a href="https://goreportcard.com/report/github.com/temikus/butter"><img src="https://goreportcard.com/badge/github.com/temikus/butter" alt="Go Report Card"></a> <a href="https://github.com/Temikus/butter/blob/main/go.mod"><img src="https://img.shields.io/github/go-mod/go-version/Temikus/butter" alt="Go Version"></a> <a href="https://github.com/Temikus/butter/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Temikus/butter" alt="License"></a>
 </p>
 
 A blazingly fast AI proxy gateway written in Go. Butter sits between your application and AI providers, offering a unified OpenAI-compatible API with minimal latency overhead.
@@ -48,6 +48,9 @@ Your App ──▶ Butter ──▶ OpenAI / Anthropic / Bedrock / Gemini / Groq
 - Health check endpoint (`/healthz`)
 - Graceful shutdown (SIGINT/SIGTERM)
 - Multi-stage Docker image (distroless base)
+- **Supply-chain security** — release binaries signed with [cosign](https://github.com/sigstore/cosign) (keyless OIDC), SLSA build-provenance attestations on Docker images, SBOMs (syft) for every release, checksums file with `.bundle` signature
+- **CI security scanning** — gosec SAST, betterleaks secret detection, Grype vulnerability scanning on push and weekly schedule; results uploaded to the GitHub Security tab as SARIF
+- See [SECURITY.md](SECURITY.md) for the vulnerability disclosure policy and security architecture overview
 
 **Coming soon:**
 - More providers (Vertex AI)
@@ -56,7 +59,7 @@ Your App ──▶ Butter ──▶ OpenAI / Anthropic / Bedrock / Gemini / Groq
 
 ### Prerequisites
 
-- Go 1.22+ (uses enhanced `ServeMux` pattern routing)
+- Go 1.25+ (uses enhanced `ServeMux` pattern routing)
 - An API key for a supported provider ([OpenAI](https://platform.openai.com/), [Anthropic](https://console.anthropic.com/), [AWS Bedrock](https://aws.amazon.com/bedrock/), [Azure OpenAI](https://azure.microsoft.com/en-us/products/ai-services/openai-service), [Google Gemini](https://ai.google.dev/), [OpenRouter](https://openrouter.ai/), [Groq](https://console.groq.com/), [Mistral](https://console.mistral.ai/), [Together.ai](https://api.together.xyz/), [Fireworks](https://fireworks.ai/), [Perplexity](https://www.perplexity.ai/), or any OpenAI-compatible API)
 
 ### 1. Install
