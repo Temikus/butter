@@ -1,6 +1,7 @@
 package bedrock
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -149,6 +150,91 @@ func TestPrepareBedrockBody_InvalidJSON(t *testing.T) {
 	body := []byte(`not json`)
 	if got := prepareBedrockBody(body); string(got) != string(body) {
 		t.Errorf("prepareBedrockBody(invalid) = %q, want %q", got, body)
+	}
+}
+
+// benchBody builds a representative Anthropic Messages API request body with
+// turns conversation messages, mirroring what a /v1/messages client sends:
+// model and stream (both stripped by prepareBedrockBody), plus fields that
+// survive the transform.
+func benchBody(turns int) []byte {
+	type message struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+	msgs := make([]message, 0, turns)
+	for i := 0; i < turns; i++ {
+		role := "user"
+		if i%2 == 1 {
+			role = "assistant"
+		}
+		msgs = append(msgs, message{
+			Role:    role,
+			Content: fmt.Sprintf("Turn %d: summarise the trade-offs of a write-behind cache in under 200 words.", i),
+		})
+	}
+
+	body, err := json.Marshal(struct {
+		Model     string    `json:"model"`
+		Stream    bool      `json:"stream"`
+		MaxTokens int       `json:"max_tokens"`
+		System    string    `json:"system"`
+		Messages  []message `json:"messages"`
+	}{
+		Model:     "claude-3-5-sonnet-20241022",
+		Stream:    true,
+		MaxTokens: 1024,
+		System:    "You are a concise assistant.",
+		Messages:  msgs,
+	})
+	if err != nil {
+		panic(err)
+	}
+	return body
+}
+
+func BenchmarkPrepareBedrockBody(b *testing.B) {
+	sizes := []struct {
+		name  string
+		turns int
+	}{
+		{"small", 1},
+		{"typical", 8},
+		{"large", 64},
+	}
+	for _, size := range sizes {
+		body := benchBody(size.turns)
+		b.Run(fmt.Sprintf("%s_%dB", size.name, len(body)), func(b *testing.B) {
+			b.ReportAllocs()
+			b.SetBytes(int64(len(body)))
+			for b.Loop() {
+				_ = prepareBedrockBody(body)
+			}
+		})
+	}
+}
+
+// BenchmarkAnthropicNativeBodyPrep measures every byte of JSON work
+// HandleAnthropicNative performs before handing the body to the AWS SDK: one
+// partial unmarshal to pull model/stream for routing, then prepareBedrockBody's
+// full unmarshal/marshal round-trip. It mirrors rather than calls
+// HandleAnthropicNative, which would dispatch to the Bedrock client.
+//
+// Compare against BenchmarkPrepareBedrockBody at the same body size to price
+// the second parse and decide whether collapsing the two is worth it.
+func BenchmarkAnthropicNativeBodyPrep(b *testing.B) {
+	body := benchBody(8)
+	b.ReportAllocs()
+	b.SetBytes(int64(len(body)))
+	for b.Loop() {
+		var partial struct {
+			Model  string `json:"model"`
+			Stream bool   `json:"stream"`
+		}
+		if err := json.Unmarshal(body, &partial); err != nil {
+			b.Fatal(err)
+		}
+		_ = prepareBedrockBody(body)
 	}
 }
 
