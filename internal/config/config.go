@@ -62,7 +62,7 @@ type WASMPluginConfig struct {
 
 type CacheConfig struct {
 	Enabled    bool          `yaml:"enabled"`
-	Backend    string        `yaml:"backend"`     // "memory" (default) or "redis"
+	Backend    string        `yaml:"backend"` // "memory" (default) or "redis"
 	TTL        time.Duration `yaml:"ttl"`
 	MaxEntries int           `yaml:"max_entries"` // memory backend only
 	Redis      RedisConfig   `yaml:"redis,omitempty"`
@@ -70,7 +70,7 @@ type CacheConfig struct {
 
 // RedisConfig holds connection settings for the Redis cache backend.
 type RedisConfig struct {
-	Address   string `yaml:"address"`    // e.g. "localhost:6379"
+	Address   string `yaml:"address"` // e.g. "localhost:6379"
 	Password  string `yaml:"password"`
 	DB        int    `yaml:"db"`
 	KeyPrefix string `yaml:"key_prefix"` // default "butter:"
@@ -109,9 +109,9 @@ type KeyConfig struct {
 }
 
 type RoutingConfig struct {
-	DefaultProvider string                 `yaml:"default_provider"`
-	Models          map[string]ModelRoute  `yaml:"models,omitempty"`
-	Failover        FailoverConfig         `yaml:"failover"`
+	DefaultProvider string                `yaml:"default_provider"`
+	Models          map[string]ModelRoute `yaml:"models,omitempty"`
+	Failover        FailoverConfig        `yaml:"failover"`
 }
 
 type ModelRoute struct {
@@ -140,14 +140,10 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("reading config file: %w", err)
 	}
 
-	// Substitute environment variables
-	expanded := envVarRegex.ReplaceAllStringFunc(string(data), func(match string) string {
-		varName := strings.TrimSuffix(strings.TrimPrefix(match, "${"), "}")
-		if val, ok := os.LookupEnv(varName); ok {
-			return val
-		}
-		return match
-	})
+	expanded, missing := expandEnv(string(data))
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("unset environment variables in config: %s", strings.Join(missing, ", "))
+	}
 
 	cfg := &Config{}
 	if err := yaml.Unmarshal([]byte(expanded), cfg); err != nil {
@@ -156,6 +152,34 @@ func Load(path string) (*Config, error) {
 
 	applyDefaults(cfg)
 	return cfg, nil
+}
+
+// expandEnv substitutes ${VAR} references with their environment values and
+// returns the names of every unset variable, in order of first appearance.
+// References on commented-out lines are left alone so a template config's
+// disabled provider blocks don't demand keys the operator isn't using.
+func expandEnv(data string) (string, []string) {
+	var missing []string
+	seen := make(map[string]struct{})
+
+	lines := strings.Split(data, "\n")
+	for i, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
+		lines[i] = envVarRegex.ReplaceAllStringFunc(line, func(match string) string {
+			name := strings.TrimSuffix(strings.TrimPrefix(match, "${"), "}")
+			if val, ok := os.LookupEnv(name); ok {
+				return val
+			}
+			if _, dup := seen[name]; !dup {
+				seen[name] = struct{}{}
+				missing = append(missing, name)
+			}
+			return match
+		})
+	}
+	return strings.Join(lines, "\n"), missing
 }
 
 func applyDefaults(cfg *Config) { //nolint:gocyclo // flat sequence of per-field default assignments

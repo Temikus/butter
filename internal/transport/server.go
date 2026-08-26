@@ -1,7 +1,6 @@
 package transport
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -718,13 +717,6 @@ func (s *Server) writeError(w http.ResponseWriter, status int, msg string) {
 	_, _ = fmt.Fprintf(w, `{"error":{"message":%q,"type":"proxy_error"}}`, msg) //nolint:gosec // G705: application/json response; %q escapes the value and it is never served as HTML. #nosec G705
 }
 
-// isStreamRequest checks if the request body contains "stream": true.
-// Uses bytes.Contains for a fast check that avoids full JSON parsing.
-func isStreamRequest(body []byte) bool {
-	return bytes.Contains(body, []byte(`"stream":true`)) ||
-		bytes.Contains(body, []byte(`"stream": true`))
-}
-
 // injectAppKeyMetadata copies the resolved app key from the request context
 // into the plugin metadata map, making it available to all plugins.
 func injectAppKeyMetadata(ctx context.Context, metadata map[string]any) {
@@ -750,4 +742,3 @@ func applyResponseHeaders(w http.ResponseWriter, pctx *plugin.RequestContext) {
 func isSSEResponse(resp *http.Response) bool {
 	return strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream")
 }
-

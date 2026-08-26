@@ -150,20 +150,3 @@ func BenchmarkBaselineStreaming(b *testing.B) {
 		_ = resp.Body.Close()
 	}
 }
-
-func BenchmarkIsStreamRequest(b *testing.B) {
-	bodies := [][]byte{
-		[]byte(`{"model":"test","messages":[],"stream":true}`),
-		[]byte(`{"model":"test","messages":[],"stream": true}`),
-		[]byte(`{"model":"test","messages":[]}`),
-	}
-
-	b.ResetTimer()
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		body := bodies[i%len(bodies)]
-		// Replicate the isStreamRequest logic since it's unexported.
-		_ = strings.Contains(string(body), `"stream":true`) ||
-			strings.Contains(string(body), `"stream": true`)
-	}
-}

@@ -8,6 +8,9 @@ design/
 # Config with secrets
 config.yaml
 
+# bbolt app-key persistence
+*.db
+
 # IDE
 .idea/
 .vscode/

@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -92,7 +93,7 @@ routing:
 	}
 }
 
-func TestUnsetEnvVarPreserved(t *testing.T) {
+func TestUnsetEnvVarFailsLoad(t *testing.T) {
 	path := writeTestConfig(t, `
 providers:
   openrouter:
@@ -103,13 +104,69 @@ routing:
   default_provider: openrouter
 `)
 
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected an error for an unset env var, got nil")
+	}
+	if !strings.Contains(err.Error(), "THIS_VAR_DOES_NOT_EXIST") {
+		t.Errorf("error should name the unset variable, got: %v", err)
+	}
+}
+
+func TestUnsetEnvVarsAllReported(t *testing.T) {
+	t.Setenv("BUTTER_SET_VAR", "sk-set")
+
+	path := writeTestConfig(t, `
+providers:
+  openrouter:
+    base_url: "${BUTTER_MISSING_URL}"
+    keys:
+      - key: "${BUTTER_SET_VAR}"
+      - key: "${BUTTER_MISSING_KEY}"
+      - key: "${BUTTER_MISSING_KEY}"
+routing:
+  default_provider: openrouter
+`)
+
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected an error for unset env vars, got nil")
+	}
+	msg := err.Error()
+	for _, name := range []string{"BUTTER_MISSING_URL", "BUTTER_MISSING_KEY"} {
+		if !strings.Contains(msg, name) {
+			t.Errorf("error should name %s, got: %v", name, err)
+		}
+	}
+	if strings.Contains(msg, "BUTTER_SET_VAR") {
+		t.Errorf("error should not name a set variable, got: %v", err)
+	}
+	if n := strings.Count(msg, "BUTTER_MISSING_KEY"); n != 1 {
+		t.Errorf("repeated variable should be reported once, got %d occurrences", n)
+	}
+}
+
+func TestUnsetEnvVarInCommentIgnored(t *testing.T) {
+	path := writeTestConfig(t, `
+providers:
+  openrouter:
+    base_url: https://openrouter.ai/api/v1
+    keys:
+      - key: "sk-test"
+  # groq:
+  #   base_url: https://api.groq.com/openai/v1
+  #   keys:
+  #     - key: "${BUTTER_COMMENTED_KEY}"
+routing:
+  default_provider: openrouter
+`)
+
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
-	if cfg.Providers["openrouter"].Keys[0].Key != "${THIS_VAR_DOES_NOT_EXIST}" {
-		t.Errorf("unset env var should be preserved, got: %s", cfg.Providers["openrouter"].Keys[0].Key)
+	if len(cfg.Providers) != 1 {
+		t.Errorf("expected 1 provider, got %d", len(cfg.Providers))
 	}
 }
 
