@@ -11,14 +11,31 @@ package wasm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
+	"sync/atomic"
+	"time"
 
 	extism "github.com/extism/go-sdk"
+	"github.com/tetratelabs/wazero/sys"
 
+	"github.com/temikus/butter/internal/config"
 	"github.com/temikus/butter/internal/plugin"
 	"github.com/temikus/butter/plugin/sdk"
+)
+
+// Errors returned by hook invocations that hit an execution bound. Both
+// wrap into the error returned by the hook methods, so callers can match
+// with [errors.Is].
+var (
+	// ErrHookTimeout means the hook exceeded the plugin's configured timeout.
+	ErrHookTimeout = errors.New("wasm hook timed out")
+	// ErrHookCanceled means the request context was cancelled (typically a
+	// client disconnect) while the hook was executing.
+	ErrHookCanceled = errors.New("wasm hook canceled")
 )
 
 // Plugin wraps an Extism-compiled WASM module and exposes it as a
@@ -29,20 +46,51 @@ import (
 type Plugin struct {
 	name     string
 	path     string
+	timeout  time.Duration
+	maxPages int
 	compiled *extism.CompiledPlugin
 	logger   *slog.Logger
+
+	// active counts hook invocations currently holding a plugin instance.
+	// It returns to zero once an aborted call's instance is torn down.
+	active atomic.Int64
+}
+
+// Option customises a Plugin at construction.
+type Option func(*Plugin)
+
+// WithTimeout bounds a single hook invocation. A non-positive duration
+// disables the bound.
+func WithTimeout(d time.Duration) Option {
+	return func(p *Plugin) { p.timeout = d }
+}
+
+// WithMaxPages caps the plugin's linear memory in 64 KiB WASM pages.
+// A non-positive value disables the cap.
+func WithMaxPages(pages int) Option {
+	return func(p *Plugin) { p.maxPages = pages }
 }
 
 // New creates a WASM plugin that will load its module from path.
 // name is used as the plugin identifier in logs and config.
 // Call [Plugin.Init] to compile and load the WASM module.
-func New(name, path string, logger *slog.Logger) *Plugin {
-	return &Plugin{
-		name:   name,
-		path:   path,
-		logger: logger,
+func New(name, path string, logger *slog.Logger, opts ...Option) *Plugin {
+	p := &Plugin{
+		name:     name,
+		path:     path,
+		timeout:  config.DefaultWASMTimeout,
+		maxPages: config.DefaultWASMMaxPages,
+		logger:   logger,
 	}
+	for _, opt := range opts {
+		opt(p)
+	}
+	return p
 }
+
+// ActiveInstances reports how many hook invocations currently hold a
+// plugin instance. Used by tests to assert aborted calls do not leak.
+func (p *Plugin) ActiveInstances() int64 { return p.active.Load() }
 
 // Name returns the plugin identifier.
 func (p *Plugin) Name() string { return p.name }
@@ -61,6 +109,19 @@ func (p *Plugin) Init(cfg map[string]any) error {
 		Wasm:   []extism.Wasm{extism.WasmFile{Path: p.path}},
 		Config: strCfg,
 	}
+	if p.timeout > 0 {
+		// Extism takes milliseconds and, when set, makes wazero honour
+		// context cancellation mid-execution (WithCloseOnContextDone),
+		// which is what unwinds a spinning hook.
+		manifest.Timeout = uint64(max(p.timeout.Milliseconds(), 1))
+	}
+	if p.maxPages > 0 {
+		pages := p.maxPages
+		if pages > math.MaxUint32 {
+			pages = math.MaxUint32
+		}
+		manifest.Memory = &extism.ManifestMemory{MaxPages: uint32(pages)}
+	}
 
 	compiled, err := extism.NewCompiledPlugin(
 		context.Background(),
@@ -72,7 +133,9 @@ func (p *Plugin) Init(cfg map[string]any) error {
 		return fmt.Errorf("wasm plugin %q: loading %s: %w", p.name, p.path, err)
 	}
 	p.compiled = compiled
-	p.logger.Info("wasm plugin loaded", "name", p.name, "path", p.path)
+	p.logger.Info("wasm plugin loaded",
+		"name", p.name, "path", p.path,
+		"timeout", p.timeout, "max_pages", p.maxPages)
 	return nil
 }
 
@@ -143,11 +206,24 @@ func (p *Plugin) PostLLM(ctx *plugin.RequestContext, resp *plugin.Response) (*pl
 // Returns (nil, nil) if the function is not exported by the WASM module.
 // body overrides ctx.Body when non-nil (used for post_llm response body).
 func (p *Plugin) call(hook string, ctx *plugin.RequestContext, body json.RawMessage) (*sdk.Response, error) {
-	inst, err := p.compiled.Instance(context.Background(), extism.PluginInstanceConfig{})
+	callCtx, cancel := p.callContext(ctx)
+	defer cancel()
+
+	if err := callCtx.Err(); err != nil {
+		return nil, p.boundsError(hook, callCtx, err)
+	}
+
+	inst, err := p.compiled.Instance(callCtx, extism.PluginInstanceConfig{})
 	if err != nil {
 		return nil, fmt.Errorf("wasm plugin %q: create instance: %w", p.name, err)
 	}
-	defer inst.Close(context.Background()) //nolint:errcheck
+	p.active.Add(1)
+	defer func() {
+		// Tear down with a live context: the request context may already
+		// be cancelled, and the instance must still be released.
+		_ = inst.Close(context.WithoutCancel(callCtx))
+		p.active.Add(-1)
+	}()
 
 	if !inst.FunctionExists(hook) {
 		return nil, nil
@@ -179,9 +255,9 @@ func (p *Plugin) call(hook string, ctx *plugin.RequestContext, body json.RawMess
 		return nil, fmt.Errorf("wasm plugin %q %s: marshal request: %w", p.name, hook, err)
 	}
 
-	exitCode, output, err := inst.Call(hook, input)
+	exitCode, output, err := inst.CallWithContext(callCtx, hook, input)
 	if err != nil {
-		return nil, fmt.Errorf("wasm plugin %q %s: %w", p.name, hook, err)
+		return nil, p.boundsError(hook, callCtx, err)
 	}
 	if exitCode != 0 {
 		return nil, fmt.Errorf("wasm plugin %q %s: non-zero exit code %d", p.name, hook, exitCode)
@@ -216,4 +292,49 @@ func applyToRequestContext(ctx *plugin.RequestContext, resp *sdk.Response) {
 		ctx.ShortCircuitStatus = status
 		ctx.ShortCircuitBody = resp.ShortCircuitBody
 	}
+}
+
+// callContext derives the context for one hook invocation from the inbound
+// request, so a client disconnect aborts the hook, and bounds it by the
+// plugin's configured timeout.
+func (p *Plugin) callContext(ctx *plugin.RequestContext) (context.Context, context.CancelFunc) {
+	base := context.Background()
+	if ctx != nil && ctx.Request != nil && ctx.Request.Context() != nil {
+		base = ctx.Request.Context()
+	}
+	if p.timeout <= 0 {
+		return context.WithCancel(base)
+	}
+	return context.WithTimeout(base, p.timeout)
+}
+
+// boundsError classifies a hook failure, mapping an execution-bound abort
+// onto [ErrHookTimeout] or [ErrHookCanceled] so callers can match it
+// without string-scraping wazero's trap text.
+func (p *Plugin) boundsError(hook string, callCtx context.Context, err error) error {
+	wrap := func(sentinel error) error {
+		return fmt.Errorf("wasm plugin %q %s: %w: %v", p.name, hook, sentinel, err)
+	}
+
+	switch {
+	case errors.Is(callCtx.Err(), context.Canceled):
+		return wrap(ErrHookCanceled)
+	case errors.Is(callCtx.Err(), context.DeadlineExceeded):
+		return wrap(ErrHookTimeout)
+	}
+
+	// wazero reports a context-driven abort as an exit error with a
+	// reserved code; the context itself may already have been reset by
+	// extism's own inner timeout.
+	var exitErr *sys.ExitError
+	if errors.As(err, &exitErr) {
+		switch exitErr.ExitCode() {
+		case sys.ExitCodeDeadlineExceeded:
+			return wrap(ErrHookTimeout)
+		case sys.ExitCodeContextCanceled:
+			return wrap(ErrHookCanceled)
+		}
+	}
+
+	return fmt.Errorf("wasm plugin %q %s: %w", p.name, hook, err)
 }

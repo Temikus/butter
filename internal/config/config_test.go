@@ -377,3 +377,56 @@ routing:
 		t.Errorf("key 2: expected weight 5, got %d", keys[2].Weight)
 	}
 }
+
+func TestWASMPluginBoundsDefaults(t *testing.T) {
+	path := writeTestConfig(t, `
+providers:
+  openrouter:
+    base_url: https://openrouter.ai/api/v1
+    keys:
+      - key: "sk-1"
+routing:
+  default_provider: openrouter
+wasm_plugins:
+  - name: defaults
+    path: ./a.wasm
+  - name: explicit
+    path: ./b.wasm
+    timeout: 1500ms
+    max_pages: 64
+  - name: unbounded
+    path: ./c.wasm
+    timeout: -1s
+    max_pages: -1
+`)
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cfg.WASMPlugins) != 3 {
+		t.Fatalf("expected 3 wasm plugins, got %d", len(cfg.WASMPlugins))
+	}
+
+	if got := cfg.WASMPlugins[0].Timeout; got != DefaultWASMTimeout {
+		t.Errorf("defaults: timeout = %v, want %v", got, DefaultWASMTimeout)
+	}
+	if got := cfg.WASMPlugins[0].MaxPages; got != DefaultWASMMaxPages {
+		t.Errorf("defaults: max_pages = %d, want %d", got, DefaultWASMMaxPages)
+	}
+
+	if got := cfg.WASMPlugins[1].Timeout; got != 1500*time.Millisecond {
+		t.Errorf("explicit: timeout = %v, want 1.5s", got)
+	}
+	if got := cfg.WASMPlugins[1].MaxPages; got != 64 {
+		t.Errorf("explicit: max_pages = %d, want 64", got)
+	}
+
+	// Negative values are an explicit opt-out and must survive defaulting.
+	if got := cfg.WASMPlugins[2].Timeout; got != -1*time.Second {
+		t.Errorf("unbounded: timeout = %v, want -1s", got)
+	}
+	if got := cfg.WASMPlugins[2].MaxPages; got != -1 {
+		t.Errorf("unbounded: max_pages = %d, want -1", got)
+	}
+}

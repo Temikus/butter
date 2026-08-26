@@ -58,7 +58,24 @@ type WASMPluginConfig struct {
 	// Config is forwarded to the WASM plugin via the Extism manifest config.
 	// Values are accessible inside the plugin via the Extism PDK config API.
 	Config map[string]string `yaml:"config,omitempty"`
+	// Timeout bounds a single hook invocation. Defaults to
+	// DefaultWASMTimeout; a negative value disables the bound (not
+	// recommended — an infinite loop in a hook then hangs the request
+	// until the client disconnects).
+	Timeout time.Duration `yaml:"timeout,omitempty"`
+	// MaxPages caps the plugin's linear memory in 64 KiB WASM pages.
+	// Defaults to DefaultWASMMaxPages. A negative value disables the cap.
+	MaxPages int `yaml:"max_pages,omitempty"`
 }
+
+const (
+	// DefaultWASMTimeout bounds a single WASM hook invocation. Hooks run
+	// inline on the request path, so the bound is well under any sensible
+	// client deadline.
+	DefaultWASMTimeout = 5 * time.Second
+	// DefaultWASMMaxPages caps WASM linear memory at 512 pages (32 MiB).
+	DefaultWASMMaxPages = 512
+)
 
 type CacheConfig struct {
 	Enabled    bool          `yaml:"enabled"`
@@ -232,6 +249,14 @@ func applyDefaults(cfg *Config) { //nolint:gocyclo // flat sequence of per-field
 		}
 		if cfg.AppKeys.Persistence.FlushInterval == 0 {
 			cfg.AppKeys.Persistence.FlushInterval = 30 * time.Second
+		}
+	}
+	for i := range cfg.WASMPlugins {
+		if cfg.WASMPlugins[i].Timeout == 0 {
+			cfg.WASMPlugins[i].Timeout = DefaultWASMTimeout
+		}
+		if cfg.WASMPlugins[i].MaxPages == 0 {
+			cfg.WASMPlugins[i].MaxPages = DefaultWASMMaxPages
 		}
 	}
 	for name, p := range cfg.Providers {
