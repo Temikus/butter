@@ -128,6 +128,9 @@ plugins:
   ratelimit:
     requests_per_minute: 60  # token bucket rate limit
     per_ip: false            # false = global, true = per client IP
+    # trusted_proxies:       # CIDRs/IPs whose X-Forwarded-For / X-Real-IP we honour.
+    #   - 10.0.0.0/8         # Empty (default) = always key on RemoteAddr, headers ignored.
+    #   - 2001:db8::/32
     # per_app_key: false     # per-app-key rate limiting (requires app_keys.enabled)
     # per_app_key_rpm: 120   # default RPM per key (falls back to requests_per_minute)
     # app_key_limits:        # per-key RPM overrides
