@@ -96,7 +96,10 @@ The config file supports `${ENV_VAR}` substitution, so the default `config.examp
 server:
   address: ":8080"
   read_timeout: 30s
-  write_timeout: 120s
+  write_timeout: 120s          # per-write deadline; streaming extends it per chunk
+  read_header_timeout: 10s     # slowloris bound on header arrival
+  idle_timeout: 120s           # idle keep-alive connection lifetime
+  max_header_bytes: 1048576    # 1 MiB request header cap
   max_request_bytes: 33554432  # 32 MiB inbound body cap; over-cap requests get 413 (negative disables)
 
 providers:

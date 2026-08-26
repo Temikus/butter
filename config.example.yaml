@@ -1,7 +1,14 @@
 server:
   address: ":8080"
   read_timeout: 30s
+  # Per-write deadline. Streaming responses extend it per chunk, so a long SSE
+  # completion is not cut off; a stalled client still is.
   write_timeout: 120s
+  # Slowloris bounds: how long headers may take to arrive, how long an idle
+  # keep-alive connection is held, and the header size cap.
+  read_header_timeout: 10s
+  idle_timeout: 120s
+  max_header_bytes: 1048576  # 1 MiB
   # Maximum inbound request body size. Bodies over this get 413. Defaults to
   # 32MiB (33554432) — matching Anthropic's 32MB request limit — so multimodal
   # payloads pass while bounding memory. Set negative to disable the cap.
