@@ -403,6 +403,7 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request, body []byt
 type streamDeadline struct {
 	rc       *http.ResponseController
 	window   time.Duration
+	logger   *slog.Logger
 	disabled bool
 }
 
@@ -413,7 +414,7 @@ func (s *Server) newStreamDeadline(w http.ResponseWriter) *streamDeadline {
 	if s.writeTimeout <= 0 {
 		return &streamDeadline{disabled: true}
 	}
-	sd := &streamDeadline{rc: http.NewResponseController(w), window: s.writeTimeout}
+	sd := &streamDeadline{rc: http.NewResponseController(w), window: s.writeTimeout, logger: s.logger}
 	sd.extend()
 	return sd
 }
@@ -421,12 +422,22 @@ func (s *Server) newStreamDeadline(w http.ResponseWriter) *streamDeadline {
 // extend pushes the write deadline out by one window. Called before each chunk
 // write. Once the underlying writer reports deadlines unsupported it stops
 // trying, so the cost on such writers is one failed call per stream.
+//
+// The self-disable is logged once, because it silently restores the very bug
+// this type exists to fix: a ResponseWriter wrapper without an
+// Unwrap() http.ResponseWriter method stops http.NewResponseController from
+// reaching the connection, and every long stream starts dying at WriteTimeout
+// again with nothing else pointing here.
 func (sd *streamDeadline) extend() {
 	if sd.disabled {
 		return
 	}
 	if err := sd.rc.SetWriteDeadline(time.Now().Add(sd.window)); err != nil {
 		sd.disabled = true
+		if sd.logger != nil {
+			sd.logger.Warn("stream write deadline extension unsupported; long streams will be cut off at write_timeout",
+				"error", err, "write_timeout", sd.window)
+		}
 	}
 }
 

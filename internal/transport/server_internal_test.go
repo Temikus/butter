@@ -1,8 +1,11 @@
 package transport
 
 import (
+	"bytes"
 	"io"
 	"log/slog"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -68,5 +71,29 @@ func TestStreamDeadlineDisabledWithoutWriteTimeout(t *testing.T) {
 	s := &Server{writeTimeout: 0}
 	if sd := s.newStreamDeadline(nil); !sd.disabled {
 		t.Error("expected deadline extender to be disabled with WriteTimeout=0")
+	}
+}
+
+// TestStreamDeadlineLogsOnceWhenUnsupported covers the debuggability path: a
+// ResponseWriter that cannot carry a deadline silently reverts streams to
+// being cut off at WriteTimeout, so the self-disable must leave a trace — and
+// exactly one, not one per chunk.
+func TestStreamDeadlineLogsOnceWhenUnsupported(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	s := &Server{writeTimeout: time.Second, logger: logger}
+
+	// httptest.ResponseRecorder implements neither SetWriteDeadline nor
+	// Unwrap, so the controller cannot reach a connection.
+	sd := s.newStreamDeadline(httptest.NewRecorder())
+	if !sd.disabled {
+		t.Fatal("expected extender to disable itself on an unsupported writer")
+	}
+	for i := 0; i < 5; i++ {
+		sd.extend()
+	}
+
+	if got := strings.Count(buf.String(), "write deadline extension unsupported"); got != 1 {
+		t.Errorf("expected exactly 1 warning, got %d:\n%s", got, buf.String())
 	}
 }
