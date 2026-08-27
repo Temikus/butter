@@ -73,33 +73,64 @@ func TestHookTimeout_SpinningPlugin(t *testing.T) {
 func TestHookCanceled_ClientDisconnect(t *testing.T) {
 	wasmPath := wasmtest.Build(t, "spin")
 
-	// Timeout far beyond the test's patience: only the request context
-	// cancellation can end this call.
-	p := pluginwasm.New("spin", wasmPath, discardLogger, pluginwasm.WithTimeout(60*time.Second))
+	tests := []struct {
+		name    string
+		timeout time.Duration
+	}{
+		// Timeout far beyond the test's patience: only the request context
+		// cancellation can end this call.
+		{name: "timeout bounded", timeout: 60 * time.Second},
+		// Opting out of the timeout must not also opt out of
+		// disconnect-abort: extism only enables wazero's
+		// WithCloseOnContextDone when a manifest timeout is set, so the
+		// host has to set it itself.
+		{name: "timeout disabled", timeout: -1},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			p := pluginwasm.New("spin", wasmPath, discardLogger, pluginwasm.WithTimeout(tc.timeout))
+			if err := p.Init(nil); err != nil {
+				t.Fatalf("Init() error: %v", err)
+			}
+			defer func() { _ = p.Close() }()
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			done := make(chan error, 1)
+			go func() { done <- p.PreHTTP(requestContext(ctx)) }()
+
+			time.Sleep(100 * time.Millisecond)
+			cancel()
+
+			select {
+			case err := <-done:
+				if !errors.Is(err, pluginwasm.ErrHookCanceled) {
+					t.Errorf("PreHTTP() error = %v, want ErrHookCanceled", err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("PreHTTP() did not return after the request context was cancelled")
+			}
+
+			waitForIdle(t, p, 2*time.Second)
+		})
+	}
+}
+
+// TestMaxPagesClamp asserts an out-of-range page cap is clamped, not
+// passed through to wazero, which panics above the WASM maximum.
+func TestMaxPagesClamp(t *testing.T) {
+	wasmPath := wasmtest.Build(t, "spin")
+
+	p := pluginwasm.New("spin", wasmPath, discardLogger,
+		pluginwasm.WithMaxPages(100_000),
+		pluginwasm.WithTimeout(time.Second),
+	)
 	if err := p.Init(nil); err != nil {
-		t.Fatalf("Init() error: %v", err)
+		t.Fatalf("Init() with an over-max page cap error: %v", err)
 	}
-	defer func() { _ = p.Close() }()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	done := make(chan error, 1)
-	go func() { done <- p.PreHTTP(requestContext(ctx)) }()
-
-	time.Sleep(100 * time.Millisecond)
-	cancel()
-
-	select {
-	case err := <-done:
-		if !errors.Is(err, pluginwasm.ErrHookCanceled) {
-			t.Errorf("PreHTTP() error = %v, want ErrHookCanceled", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("PreHTTP() did not return after the request context was cancelled")
-	}
-
-	waitForIdle(t, p, 2*time.Second)
+	_ = p.Close()
 }
 
 func TestMemoryCap_AllocationPastLimit(t *testing.T) {

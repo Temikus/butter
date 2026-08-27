@@ -52,11 +52,26 @@ func Build(t *testing.T, name string) string {
 		return out
 	}
 
+	// Build to a unique temp file and rename into place: the cache dir is
+	// shared across test binaries, so a concurrent process must never see a
+	// half-written module (nor keep serving one from a crashed build, whose
+	// mtime would defeat the staleness check above).
+	tmp, err := os.CreateTemp(outDir, name+".*.wasm")
+	if err != nil {
+		t.Fatalf("creating fixture temp file: %v", err)
+	}
+	tmpPath := tmp.Name()
+	_ = tmp.Close()
+	defer func() { _ = os.Remove(tmpPath) }()
+
 	//nolint:gosec // goBin comes from PATH; the remaining args are fixed and repo-local
-	cmd := exec.Command(goBin, "build", "-buildmode=c-shared", "-o", out, src)
+	cmd := exec.Command(goBin, "build", "-buildmode=c-shared", "-o", tmpPath, src)
 	cmd.Env = append(os.Environ(), "GOOS=wasip1", "GOARCH=wasm")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("building WASM fixture %q: %v\n%s", name, err, output)
+	}
+	if err := os.Rename(tmpPath, out); err != nil {
+		t.Fatalf("publishing WASM fixture %q: %v", name, err)
 	}
 	return out
 }

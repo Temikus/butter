@@ -14,12 +14,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math"
 	"net/http"
 	"sync/atomic"
 	"time"
 
 	extism "github.com/extism/go-sdk"
+	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/sys"
 
 	"github.com/temikus/butter/internal/config"
@@ -37,6 +37,10 @@ var (
 	// client disconnect) while the hook was executing.
 	ErrHookCanceled = errors.New("wasm hook canceled")
 )
+
+// maxWASMPages is the WASM 32-bit address-space maximum (4 GiB in 64 KiB
+// pages). wazero panics on a memory limit above it.
+const maxWASMPages = 65536
 
 // Plugin wraps an Extism-compiled WASM module and exposes it as a
 // Butter plugin. It implements [plugin.TransportPlugin] and
@@ -117,8 +121,10 @@ func (p *Plugin) Init(cfg map[string]any) error {
 	}
 	if p.maxPages > 0 {
 		pages := p.maxPages
-		if pages > math.MaxUint32 {
-			pages = math.MaxUint32
+		// wazero panics above the WASM 32-bit address-space maximum, so a
+		// config typo is clamped rather than crashing the process at startup.
+		if pages > maxWASMPages {
+			pages = maxWASMPages
 		}
 		manifest.Memory = &extism.ManifestMemory{MaxPages: uint32(pages)}
 	}
@@ -126,7 +132,13 @@ func (p *Plugin) Init(cfg map[string]any) error {
 	compiled, err := extism.NewCompiledPlugin(
 		context.Background(),
 		manifest,
-		extism.PluginConfig{EnableWasi: true},
+		extism.PluginConfig{
+			EnableWasi: true,
+			// Extism only sets this itself when a manifest timeout is
+			// present; setting it here keeps client-disconnect abort
+			// working when the timeout bound is disabled.
+			RuntimeConfig: wazero.NewRuntimeConfig().WithCloseOnContextDone(true),
+		},
 		nil,
 	)
 	if err != nil {
