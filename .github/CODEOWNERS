@@ -1,0 +1,7 @@
+# Code owners. Review from a listed owner is required on matching paths when
+# branch protection has "Require review from Code Owners" enabled.
+
+# CI/CD and supply-chain surface: workflows carry repo credentials and run
+# untrusted PR content, so changes here need an explicit owner review.
+/.github/workflows/ @Temikus
+/.github/CODEOWNERS  @Temikus

@@ -85,6 +85,17 @@ lint:
 vet:
     go vet ./...
 
+# Scan dependencies + stdlib for known vulnerabilities (govulncheck)
+vuln:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Deliberately not part of `check`: this hits the vuln DB over the network
+    # on every run, which would break the offline local loop. CI runs it on
+    # every push/PR instead.
+    # renovate: datasource=go depName=golang.org/x/vuln
+    VERSION="v1.7.0"
+    go run "golang.org/x/vuln/cmd/govulncheck@${VERSION}" $(go list ./... | grep -v '/plugins/')
+
 # Run all checks (vet + lint + all tests)
 check: vet lint test
 
