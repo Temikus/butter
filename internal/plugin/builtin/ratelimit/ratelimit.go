@@ -329,7 +329,10 @@ func (p *Plugin) clientIP(r *http.Request) string {
 		return peer.String()
 	}
 
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+	// Join every XFF line, not just the first: proxies that add a new header
+	// line instead of appending would otherwise leave the attacker's own line
+	// at the head, and the walk would run over attacker-chosen values.
+	if xff := strings.Join(r.Header.Values("X-Forwarded-For"), ","); xff != "" {
 		hops := strings.Split(xff, ",")
 		for i := len(hops) - 1; i >= 0; i-- {
 			addr, ok := parseAddr(hops[i])
@@ -342,8 +345,10 @@ func (p *Plugin) clientIP(r *http.Request) string {
 		}
 	}
 
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		if addr, ok := parseAddr(xri); ok && !p.isTrusted(addr) {
+	// X-Real-IP is single-valued, so take the last line for the same reason:
+	// a client-supplied line can only precede one written by the trusted peer.
+	if xris := r.Header.Values("X-Real-IP"); len(xris) > 0 {
+		if addr, ok := parseAddr(xris[len(xris)-1]); ok && !p.isTrusted(addr) {
 			return addr.String()
 		}
 	}

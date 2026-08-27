@@ -155,6 +155,10 @@ func TestClientIPExtraction(t *testing.T) {
 		remote   string
 		xff      string
 		xri      string
+		// xffLines / xriLines set repeated header lines, as proxies that add
+		// rather than append produce. Mutually exclusive with xff / xri.
+		xffLines []string
+		xriLines []string
 		expected string
 	}{
 		// No trusted proxies configured: headers are ignored outright.
@@ -334,6 +338,45 @@ func TestClientIPExtraction(t *testing.T) {
 			expected: "10.0.0.1",
 		},
 
+		// Repeated header lines: proxies that add a line instead of appending
+		// leave the client's own line first, so only the last line was written
+		// by the trusted peer.
+		{
+			name:     "multi-line XFF walks the last line",
+			trusted:  []any{"10.0.0.0/8"},
+			remote:   "10.0.0.1:999",
+			xffLines: []string{"6.6.6.6", "203.0.113.9"},
+			expected: "203.0.113.9",
+		},
+		{
+			name:     "multi-line XFF with a chain on the proxy line",
+			trusted:  []any{"10.0.0.0/8"},
+			remote:   "10.0.0.1:999",
+			xffLines: []string{"6.6.6.6", "203.0.113.9, 10.0.0.2"},
+			expected: "203.0.113.9",
+		},
+		{
+			name:     "multi-line XFF from an untrusted peer is still ignored",
+			trusted:  []any{"10.0.0.0/8"},
+			remote:   "203.0.113.9:4444",
+			xffLines: []string{"6.6.6.6", "1.2.3.4"},
+			expected: "203.0.113.9",
+		},
+		{
+			name:     "multi-line XFF with a malformed last line falls back to peer",
+			trusted:  []any{"10.0.0.0/8"},
+			remote:   "10.0.0.1:999",
+			xffLines: []string{"6.6.6.6", "garbage"},
+			expected: "10.0.0.1",
+		},
+		{
+			name:     "multi-line X-Real-IP takes the last line",
+			trusted:  []any{"10.0.0.0/8"},
+			remote:   "10.0.0.1:999",
+			xriLines: []string{"6.6.6.6", "203.0.113.9"},
+			expected: "203.0.113.9",
+		},
+
 		// IPv6.
 		{
 			name:     "IPv6 peer untrusted ignores XFF",
@@ -409,8 +452,14 @@ func TestClientIPExtraction(t *testing.T) {
 			if tt.xff != "" {
 				req.Header.Set("X-Forwarded-For", tt.xff)
 			}
+			for _, line := range tt.xffLines {
+				req.Header.Add("X-Forwarded-For", line)
+			}
 			if tt.xri != "" {
 				req.Header.Set("X-Real-IP", tt.xri)
+			}
+			for _, line := range tt.xriLines {
+				req.Header.Add("X-Real-IP", line)
 			}
 			got := p.clientIP(req)
 			if got != tt.expected {
