@@ -97,6 +97,17 @@ type ServerConfig struct {
 	Address      string        `yaml:"address"`
 	ReadTimeout  time.Duration `yaml:"read_timeout"`
 	WriteTimeout time.Duration `yaml:"write_timeout"`
+	// ReadHeaderTimeout bounds how long a client may take to send request
+	// headers. Without it a slowloris client can hold a connection open
+	// indefinitely by dribbling header bytes. Defaults to
+	// DefaultReadHeaderTimeout.
+	ReadHeaderTimeout time.Duration `yaml:"read_header_timeout"`
+	// IdleTimeout bounds how long an idle keep-alive connection is kept.
+	// Defaults to DefaultIdleTimeout.
+	IdleTimeout time.Duration `yaml:"idle_timeout"`
+	// MaxHeaderBytes caps the size of request headers. Defaults to
+	// DefaultMaxHeaderBytes.
+	MaxHeaderBytes int `yaml:"max_header_bytes"`
 	// MaxRequestBytes caps the size of an inbound request body (bytes). Requests
 	// exceeding it receive 413. Defaults to DefaultMaxRequestBytes. A negative
 	// value disables the cap; 0 is treated as unset and gets the default.
@@ -108,6 +119,16 @@ type ServerConfig struct {
 // accepts any multimodal/base64 payload the upstream providers themselves accept
 // while bounding per-request memory against exhaustion DoS.
 const DefaultMaxRequestBytes int64 = 32 << 20
+
+// Slowloris defaults. ReadHeaderTimeout is deliberately much shorter than
+// ReadTimeout: headers are small and arrive fast, bodies may not.
+const (
+	DefaultReadHeaderTimeout = 10 * time.Second
+	DefaultIdleTimeout       = 120 * time.Second
+	// DefaultMaxHeaderBytes matches net/http's own default (1 MiB), set
+	// explicitly so the value is visible and operator-tunable.
+	DefaultMaxHeaderBytes = 1 << 20
+)
 
 type ProviderConfig struct {
 	BaseURL        string            `yaml:"base_url"`
@@ -210,6 +231,15 @@ func applyDefaults(cfg *Config) { //nolint:gocyclo // flat sequence of per-field
 	}
 	if cfg.Server.WriteTimeout == 0 {
 		cfg.Server.WriteTimeout = 120 * time.Second
+	}
+	if cfg.Server.ReadHeaderTimeout == 0 {
+		cfg.Server.ReadHeaderTimeout = DefaultReadHeaderTimeout
+	}
+	if cfg.Server.IdleTimeout == 0 {
+		cfg.Server.IdleTimeout = DefaultIdleTimeout
+	}
+	if cfg.Server.MaxHeaderBytes == 0 {
+		cfg.Server.MaxHeaderBytes = DefaultMaxHeaderBytes
 	}
 	if cfg.Server.MaxRequestBytes == 0 {
 		cfg.Server.MaxRequestBytes = DefaultMaxRequestBytes

@@ -30,6 +30,7 @@ type Server struct {
 	appKeyRequire  bool
 	appKeyTTL      time.Duration // default TTL applied to vended keys (0 = none)
 	maxBodyBytes   int64         // inbound request body cap; <0 disables it
+	writeTimeout   time.Duration // per-write deadline window for streaming relays
 }
 
 // Option configures optional Server behavior.
@@ -70,6 +71,7 @@ func NewServer(cfg *config.ServerConfig, engine *proxy.Engine, logger *slog.Logg
 		logger:       logger,
 		chain:        chain,
 		maxBodyBytes: cfg.MaxRequestBytes,
+		writeTimeout: cfg.WriteTimeout,
 	}
 	// Guard against an unset cap reaching MaxBytesReader as a literal 0, which
 	// would reject every body. A negative value is an explicit "no cap".
@@ -115,11 +117,31 @@ func NewServer(cfg *config.ServerConfig, engine *proxy.Engine, logger *slog.Logg
 		mux.HandleFunc("GET /v1/usage", s.handleUsageAggregate)
 	}
 
+	readHeaderTimeout := cfg.ReadHeaderTimeout
+	if readHeaderTimeout == 0 {
+		readHeaderTimeout = config.DefaultReadHeaderTimeout
+	}
+	idleTimeout := cfg.IdleTimeout
+	if idleTimeout == 0 {
+		idleTimeout = config.DefaultIdleTimeout
+	}
+	maxHeaderBytes := cfg.MaxHeaderBytes
+	if maxHeaderBytes == 0 {
+		maxHeaderBytes = config.DefaultMaxHeaderBytes
+	}
+
 	s.httpServer = &http.Server{
-		Addr:         cfg.Address,
-		Handler:      s.withMiddleware(mux),
-		ReadTimeout:  cfg.ReadTimeout,
-		WriteTimeout: cfg.WriteTimeout,
+		Addr:        cfg.Address,
+		Handler:     s.withMiddleware(mux),
+		ReadTimeout: cfg.ReadTimeout,
+		// ReadHeaderTimeout, IdleTimeout, and MaxHeaderBytes bound slowloris
+		// clients that hold connections open with dribbled headers or idle
+		// keep-alives. WriteTimeout stays a per-write deadline for streaming
+		// responses — see streamDeadline.
+		ReadHeaderTimeout: readHeaderTimeout,
+		WriteTimeout:      cfg.WriteTimeout,
+		IdleTimeout:       idleTimeout,
+		MaxHeaderBytes:    maxHeaderBytes,
 	}
 
 	return s
@@ -323,12 +345,15 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request, body []byt
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
+	deadline := s.newStreamDeadline(w)
+
 	var streamErr error
 	for {
 		chunk, err := stream.Next()
 		if err != nil {
 			if err == io.EOF {
 				// Send the final [DONE] marker.
+				deadline.extend()
 				_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
 				flusher.Flush()
 				break
@@ -347,7 +372,9 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request, body []byt
 			chunk = s.chain.RunStreamChunk(pctx, chunk)
 		}
 
-		// Write the SSE chunk and flush immediately.
+		// Write the SSE chunk and flush immediately, extending the write
+		// deadline first so a long stream is not cut off by WriteTimeout.
+		deadline.extend()
 		_, _ = fmt.Fprintf(w, "%s\n\n", chunk)
 		flusher.Flush()
 	}
@@ -367,19 +394,84 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request, body []byt
 	}
 }
 
+// streamDeadline extends the connection write deadline as a streaming response
+// is relayed. Server.WriteTimeout is an absolute deadline set once when the
+// request starts, so without this a WriteTimeout-length SSE stream is severed
+// mid-flight regardless of how healthy it is. Extending per chunk keeps the
+// timeout doing its real job — catching a client that has stopped reading —
+// while letting a long completion run as long as it keeps producing.
+type streamDeadline struct {
+	rc       *http.ResponseController
+	window   time.Duration
+	logger   *slog.Logger
+	disabled bool
+}
+
+// newStreamDeadline returns a deadline extender for w and arms it. It is inert
+// when no write timeout is configured, or when the ResponseWriter does not
+// support deadlines (e.g. httptest.ResponseRecorder).
+func (s *Server) newStreamDeadline(w http.ResponseWriter) *streamDeadline {
+	if s.writeTimeout <= 0 {
+		return &streamDeadline{disabled: true}
+	}
+	sd := &streamDeadline{rc: http.NewResponseController(w), window: s.writeTimeout, logger: s.logger}
+	sd.extend()
+	return sd
+}
+
+// extend pushes the write deadline out by one window. Called before each chunk
+// write. Once the underlying writer reports deadlines unsupported it stops
+// trying, so the cost on such writers is one failed call per stream.
+//
+// The self-disable is logged once, because it silently restores the very bug
+// this type exists to fix: a ResponseWriter wrapper without an
+// Unwrap() http.ResponseWriter method stops http.NewResponseController from
+// reaching the connection, and every long stream starts dying at WriteTimeout
+// again with nothing else pointing here.
+func (sd *streamDeadline) extend() {
+	if sd.disabled {
+		return
+	}
+	if err := sd.rc.SetWriteDeadline(time.Now().Add(sd.window)); err != nil {
+		sd.disabled = true
+		if sd.logger != nil {
+			sd.logger.Warn("stream write deadline extension unsupported; long streams will be cut off at write_timeout",
+				"error", err, "write_timeout", sd.window)
+		}
+	}
+}
+
 // flushWriter wraps an io.Writer and http.Flusher, calling Flush after every
 // Write. Used for streaming passthrough to relay SSE chunks immediately.
+// deadline, when non-nil, extends the write deadline before each write.
 type flushWriter struct {
-	w       io.Writer
-	flusher http.Flusher
+	w        io.Writer
+	flusher  http.Flusher
+	deadline *streamDeadline
 }
 
 func (fw *flushWriter) Write(p []byte) (int, error) {
+	if fw.deadline != nil {
+		fw.deadline.extend()
+	}
 	n, err := fw.w.Write(p)
 	if n > 0 {
 		fw.flusher.Flush()
 	}
 	return n, err
+}
+
+// deadlineWriter extends the write deadline before each write without
+// flushing. Used on the non-SSE passthrough relay, where a large upstream body
+// can also outlive a single WriteTimeout window.
+type deadlineWriter struct {
+	w        io.Writer
+	deadline *streamDeadline
+}
+
+func (dw *deadlineWriter) Write(p []byte) (int, error) {
+	dw.deadline.extend()
+	return dw.w.Write(p)
 }
 
 func (s *Server) handleNativePassthrough(w http.ResponseWriter, r *http.Request) {
@@ -440,16 +532,17 @@ func (s *Server) handleNativePassthrough(w http.ResponseWriter, r *http.Request)
 
 	// For SSE streaming responses, flush each chunk immediately so the client
 	// receives events in real time instead of buffering until EOF.
+	deadline := s.newStreamDeadline(w)
 	if streaming {
 		flusher, ok := w.(http.Flusher)
 		if !ok {
 			s.logger.Warn("streaming passthrough: ResponseWriter does not support Flush")
-			_, _ = io.Copy(w, resp.Body)
+			_, _ = io.Copy(&deadlineWriter{w: w, deadline: deadline}, resp.Body)
 			return
 		}
-		_, _ = io.Copy(&flushWriter{w: w, flusher: flusher}, resp.Body)
+		_, _ = io.Copy(&flushWriter{w: w, flusher: flusher, deadline: deadline}, resp.Body)
 	} else {
-		_, _ = io.Copy(w, resp.Body)
+		_, _ = io.Copy(&deadlineWriter{w: w, deadline: deadline}, resp.Body)
 	}
 }
 
@@ -522,13 +615,14 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
 		// and never returns an error so it cannot break the relay.
 		sink := &appkey.AnthropicStreamUsageSink{}
 		flusher, ok := w.(http.Flusher)
+		deadline := s.newStreamDeadline(w)
 
 		writers := []io.Writer{sink}
 		if ok {
-			writers = append([]io.Writer{&flushWriter{w: w, flusher: flusher}}, writers...)
+			writers = append([]io.Writer{&flushWriter{w: w, flusher: flusher, deadline: deadline}}, writers...)
 		} else {
 			s.logger.Warn("streaming messages: ResponseWriter does not support Flush")
-			writers = append([]io.Writer{w}, writers...)
+			writers = append([]io.Writer{&deadlineWriter{w: w, deadline: deadline}}, writers...)
 		}
 		if bodySink, ok := pctx.Metadata[plugin.MetaStreamBodySink].(io.Writer); ok {
 			writers = append(writers, bodySink)
