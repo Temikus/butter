@@ -156,8 +156,10 @@ func Load(path string) (*Config, error) {
 
 // expandEnv substitutes ${VAR} references with their environment values and
 // returns the names of every unset variable, in order of first appearance.
-// References on commented-out lines are left alone so a template config's
-// disabled provider blocks don't demand keys the operator isn't using.
+// References on lines that are wholly commented out are left alone, so a
+// template config's disabled provider blocks don't demand keys the operator
+// isn't using. Trailing comments are not stripped: a ${VAR} after a `#` on an
+// otherwise live line is still substituted, and still reported when unset.
 func expandEnv(data string) (string, []string) {
 	var missing []string
 	seen := make(map[string]struct{})

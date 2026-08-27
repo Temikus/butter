@@ -8,7 +8,10 @@ var streamKey = []byte("stream")
 // Walks the outermost object only, skipping nested values, so a `"stream":true`
 // substring inside message content can't flip a request into SSE. Allocation-free:
 // a full json.Unmarshal here would blow the <50µs proxy overhead budget.
+// Duplicate top-level keys resolve last-wins, matching encoding/json and the
+// upstream parsers that decide whether the response is SSE.
 func isStreamRequest(body []byte) bool {
+	stream := false
 	i := skipJSONSpace(body, 0)
 	if i >= len(body) || body[i] != '{' {
 		return false
@@ -18,7 +21,7 @@ func isStreamRequest(body []byte) bool {
 	for {
 		i = skipJSONSpace(body, i)
 		if i >= len(body) {
-			return false
+			return stream
 		}
 		switch body[i] {
 		case ',':
@@ -27,29 +30,29 @@ func isStreamRequest(body []byte) bool {
 		case '"':
 		default:
 			// '}' or malformed input
-			return false
+			return stream
 		}
 
 		keyStart := i + 1
 		keyEnd := scanJSONString(body, i)
 		if keyEnd < 0 {
-			return false
+			return stream
 		}
 		key := body[keyStart : keyEnd-1]
 
 		i = skipJSONSpace(body, keyEnd)
 		if i >= len(body) || body[i] != ':' {
-			return false
+			return stream
 		}
 		i = skipJSONSpace(body, i+1)
 
 		if bytes.Equal(key, streamKey) {
-			return bytes.HasPrefix(body[i:], []byte("true"))
+			stream = bytes.HasPrefix(body[i:], []byte("true"))
 		}
 
 		i = skipJSONValue(body, i)
 		if i < 0 {
-			return false
+			return stream
 		}
 	}
 }

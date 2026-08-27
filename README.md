@@ -87,7 +87,7 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 export OPENROUTER_API_KEY="sk-or-v1-..."
 ```
 
-The config file supports `${ENV_VAR}` substitution, so the default `config.example.yaml` works out of the box once the environment variables are set. A reference to an unset variable fails the load with an error naming every missing variable - references on commented-out lines are ignored.
+The config file supports `${ENV_VAR}` substitution, so the default `config.example.yaml` works out of the box once the environment variables are set. A reference to an unset variable fails the load with an error naming every missing variable. References on fully commented-out lines are ignored; a reference in a trailing comment on a live line is not.
 
 <details>
 <summary>Example config.yaml</summary>

@@ -84,6 +84,21 @@ func TestIsStreamRequest(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "duplicate stream keys, last wins true",
+			body: `{"stream":false,"model":"gpt-4","stream":true}`,
+			want: true,
+		},
+		{
+			name: "duplicate stream keys, last wins false",
+			body: `{"stream":true,"model":"gpt-4","stream":false}`,
+			want: false,
+		},
+		{
+			name: "duplicate stream keys, nested object between",
+			body: `{"stream":true,"options":{"stream":true},"stream":false}`,
+			want: false,
+		},
+		{
 			name: "empty body",
 			body: ``,
 			want: false,
