@@ -10,6 +10,8 @@ This is one layer of defense-in-depth. It catches known attack signatures but ca
 wasm_plugins:
   - name: prompt-injection-guard
     path: ./plugins/prompt-injection-guard/prompt-injection-guard.wasm
+    timeout: 5s                  # per-hook execution bound (default)
+    max_pages: 512               # linear memory cap, 64 KiB pages (default)
     config:
       mode: block              # block | log | tag
       scan_roles: "user,assistant"  # comma-separated roles, or "all"

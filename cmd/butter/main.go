@@ -146,7 +146,10 @@ func main() { //nolint:gocyclo // composition root: wires config, providers, plu
 	// Register WASM plugins in config order. Each plugin's user-supplied
 	// config is merged into cfg.Plugins so that InitAll can pass it through.
 	for _, wpc := range cfg.WASMPlugins {
-		wp := pluginwasm.New(wpc.Name, wpc.Path, logger)
+		wp := pluginwasm.New(wpc.Name, wpc.Path, logger,
+			pluginwasm.WithTimeout(wpc.Timeout),
+			pluginwasm.WithMaxPages(wpc.MaxPages),
+		)
 		pluginMgr.Register(wp)
 
 		wasmCfg := make(map[string]any, len(wpc.Config))

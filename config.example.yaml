@@ -151,6 +151,8 @@ plugins:
 # wasm_plugins:              # External WASM plugins (Extism-based, sandboxed)
 #   - name: example-wasm    # Unique name; used in logs and config lookup
 #     path: ./plugins/example-wasm/example-wasm.wasm
+#     timeout: 5s           # Per-hook execution bound (default 5s; negative disables)
+#     max_pages: 512        # Linear memory cap in 64 KiB pages (default 512 = 32 MiB)
 #     config:               # Forwarded to plugin via Extism manifest config
 #       tag: production     # Read inside plugin with pdk.GetConfig("tag")
 #
@@ -162,6 +164,9 @@ plugins:
 #
 # Plugins may export any of: pre_http, post_http, pre_llm, post_llm
 # Unexported hooks are silently skipped. Errors are logged, never fatal.
+# Hooks run on the request path and are bounded by timeout/max_pages; a hook
+# that exceeds either fails the hook, not the request. A client disconnect
+# aborts an in-flight hook.
 # See plugins/example-wasm/ and plugin/sdk/ for authoring docs.
 
 # app_keys:                      # Optional — omit entirely to disable (zero overhead)

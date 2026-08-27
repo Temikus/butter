@@ -41,6 +41,7 @@ type serverCfg struct {
 	appKeyRequire  bool
 	appKeyStore    *appkey.Store // set by build() when appKeysEnabled
 	maxReqBytes    int64         // 0 → server default applies
+	plugins        []plugin.Plugin
 }
 
 func newServerCfg() *serverCfg {
@@ -77,6 +78,12 @@ func (c *serverCfg) withCache() *serverCfg {
 
 func (c *serverCfg) withMaxRequestBytes(n int64) *serverCfg {
 	c.maxReqBytes = n
+	return c
+}
+
+// withPlugin registers an already-initialised plugin on the test server.
+func (c *serverCfg) withPlugin(p plugin.Plugin) *serverCfg {
+	c.plugins = append(c.plugins, p)
 	return c
 }
 
@@ -142,6 +149,9 @@ func (c *serverCfg) build(t *testing.T) *httptest.Server {
 	}
 
 	mgr := plugin.NewManager(logger)
+	for _, p := range c.plugins {
+		mgr.Register(p)
+	}
 	chain := plugin.NewChain(mgr, logger)
 	engine := proxy.NewEngine(registry, cfg, logger, chain)
 
