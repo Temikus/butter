@@ -140,12 +140,20 @@ plugins:
   ratelimit:
     requests_per_minute: 60
     per_ip: false
+    # trusted_proxies: [10.0.0.0/8]  # see the note below before enabling per_ip
   requestlog:
     level: info
   metrics: {}
 ```
 
 </details>
+
+> **Running `per_ip: true` behind a load balancer?** Set `ratelimit.trusted_proxies`.
+> `X-Forwarded-For` and `X-Real-IP` are honoured only when the peer address falls
+> inside that list, which is empty by default - so without it every request keys on
+> the load balancer's own address and all of your clients share a single RPM budget.
+> The list takes CIDRs or bare IPs, IPv4 and IPv6, and an unparseable entry fails
+> startup rather than being ignored.
 
 ### 3. Run
 

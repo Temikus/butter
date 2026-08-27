@@ -1,6 +1,7 @@
 package ratelimit
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -150,32 +151,426 @@ func TestBucketRefillCap(t *testing.T) {
 func TestClientIPExtraction(t *testing.T) {
 	tests := []struct {
 		name     string
+		trusted  []any
+		remote   string
 		xff      string
 		xri      string
-		remote   string
+		// xffLines / xriLines set repeated header lines, as proxies that add
+		// rather than append produce. Mutually exclusive with xff / xri.
+		xffLines []string
+		xriLines []string
 		expected string
 	}{
-		{"X-Forwarded-For", "1.2.3.4", "", "5.6.7.8:1234", "1.2.3.4"},
-		{"X-Real-IP", "", "2.3.4.5", "5.6.7.8:1234", "2.3.4.5"},
-		{"RemoteAddr", "", "", "5.6.7.8:1234", "5.6.7.8"},
-		{"RemoteAddr no port", "", "", "5.6.7.8", "5.6.7.8"},
+		// No trusted proxies configured: headers are ignored outright.
+		{
+			name:     "no trusted proxies ignores XFF",
+			remote:   "5.6.7.8:1234",
+			xff:      "1.2.3.4",
+			expected: "5.6.7.8",
+		},
+		{
+			name:     "no trusted proxies ignores X-Real-IP",
+			remote:   "5.6.7.8:1234",
+			xri:      "2.3.4.5",
+			expected: "5.6.7.8",
+		},
+		{
+			name:     "RemoteAddr only",
+			remote:   "5.6.7.8:1234",
+			expected: "5.6.7.8",
+		},
+		{
+			name:     "RemoteAddr without port",
+			remote:   "5.6.7.8",
+			expected: "5.6.7.8",
+		},
+		{
+			name:     "unparseable RemoteAddr collapses to a single bucket",
+			remote:   "not-an-address",
+			xff:      "1.2.3.4",
+			expected: unknownIP,
+		},
+
+		// Spoofing from an untrusted peer must not move the key.
+		{
+			name:     "spoofed XFF from untrusted peer",
+			trusted:  []any{"10.0.0.0/8"},
+			remote:   "203.0.113.9:4444",
+			xff:      "1.2.3.4",
+			expected: "203.0.113.9",
+		},
+		{
+			name:     "spoofed chain from untrusted peer",
+			trusted:  []any{"10.0.0.0/8"},
+			remote:   "203.0.113.9:4444",
+			xff:      "1.2.3.4, 10.0.0.1, 10.0.0.2",
+			expected: "203.0.113.9",
+		},
+		{
+			name:     "spoofed X-Real-IP from untrusted peer",
+			trusted:  []any{"10.0.0.0/8"},
+			remote:   "203.0.113.9:4444",
+			xri:      "1.2.3.4",
+			expected: "203.0.113.9",
+		},
+
+		// Trusted peer: honour the headers.
+		{
+			name:     "trusted peer single hop",
+			trusted:  []any{"10.0.0.0/8"},
+			remote:   "10.0.0.1:1234",
+			xff:      "1.2.3.4",
+			expected: "1.2.3.4",
+		},
+		{
+			name:     "trusted peer multi-hop takes rightmost untrusted",
+			trusted:  []any{"10.0.0.0/8"},
+			remote:   "10.0.0.1:1234",
+			xff:      "1.2.3.4, 198.51.100.7, 10.0.0.2",
+			expected: "198.51.100.7",
+		},
+		{
+			name:     "trusted peer chain of only trusted hops falls back to peer",
+			trusted:  []any{"10.0.0.0/8"},
+			remote:   "10.0.0.1:1234",
+			xff:      "10.0.0.3, 10.0.0.2",
+			expected: "10.0.0.1",
+		},
+		{
+			name:     "client-injected leftmost entry is not used",
+			trusted:  []any{"10.0.0.0/8"},
+			remote:   "10.0.0.1:1234",
+			xff:      "9.9.9.9, 203.0.113.5, 10.0.0.2",
+			expected: "203.0.113.5",
+		},
+		{
+			name:     "trusted peer X-Real-IP when no XFF",
+			trusted:  []any{"10.0.0.0/8"},
+			remote:   "10.0.0.1:1234",
+			xri:      "2.3.4.5",
+			expected: "2.3.4.5",
+		},
+		{
+			name:     "XFF wins over X-Real-IP",
+			trusted:  []any{"10.0.0.0/8"},
+			remote:   "10.0.0.1:1234",
+			xff:      "1.2.3.4",
+			xri:      "2.3.4.5",
+			expected: "1.2.3.4",
+		},
+		{
+			name:     "X-Real-IP naming a trusted proxy falls back to peer",
+			trusted:  []any{"10.0.0.0/8"},
+			remote:   "10.0.0.1:1234",
+			xri:      "10.0.0.7",
+			expected: "10.0.0.1",
+		},
+		{
+			name:     "bare IP entry in trusted_proxies",
+			trusted:  []any{"10.0.0.1"},
+			remote:   "10.0.0.1:1234",
+			xff:      "1.2.3.4",
+			expected: "1.2.3.4",
+		},
+		{
+			name:     "peer outside a bare trusted IP is not trusted",
+			trusted:  []any{"10.0.0.1"},
+			remote:   "10.0.0.2:1234",
+			xff:      "1.2.3.4",
+			expected: "10.0.0.2",
+		},
+		{
+			name:     "XFF entry carrying a port",
+			trusted:  []any{"10.0.0.0/8"},
+			remote:   "10.0.0.1:1234",
+			xff:      "1.2.3.4:5678",
+			expected: "1.2.3.4",
+		},
+		{
+			name:     "whitespace around chain entries",
+			trusted:  []any{"10.0.0.0/8"},
+			remote:   "10.0.0.1:1234",
+			xff:      "  1.2.3.4 ,  10.0.0.2  ",
+			expected: "1.2.3.4",
+		},
+
+		// Malformed values must never mint a bucket of their own.
+		{
+			name:     "malformed XFF falls back to peer",
+			trusted:  []any{"10.0.0.0/8"},
+			remote:   "10.0.0.1:1234",
+			xff:      "not-an-ip",
+			expected: "10.0.0.1",
+		},
+		{
+			name:     "malformed rightmost hop aborts the walk",
+			trusted:  []any{"10.0.0.0/8"},
+			remote:   "10.0.0.1:1234",
+			xff:      "1.2.3.4, garbage",
+			expected: "10.0.0.1",
+		},
+		{
+			name:     "malformed leftmost hop is never reached",
+			trusted:  []any{"10.0.0.0/8"},
+			remote:   "10.0.0.1:1234",
+			xff:      "garbage, 198.51.100.7",
+			expected: "198.51.100.7",
+		},
+		{
+			name:     "empty XFF entry falls back to peer",
+			trusted:  []any{"10.0.0.0/8"},
+			remote:   "10.0.0.1:1234",
+			xff:      "1.2.3.4,",
+			expected: "10.0.0.1",
+		},
+		{
+			name:     "malformed X-Real-IP falls back to peer",
+			trusted:  []any{"10.0.0.0/8"},
+			remote:   "10.0.0.1:1234",
+			xri:      "999.999.999.999",
+			expected: "10.0.0.1",
+		},
+		{
+			name:     "XFF header of only commas falls back to peer",
+			trusted:  []any{"10.0.0.0/8"},
+			remote:   "10.0.0.1:1234",
+			xff:      ",,,",
+			expected: "10.0.0.1",
+		},
+
+		// Repeated header lines: proxies that add a line instead of appending
+		// leave the client's own line first, so only the last line was written
+		// by the trusted peer.
+		{
+			name:     "multi-line XFF walks the last line",
+			trusted:  []any{"10.0.0.0/8"},
+			remote:   "10.0.0.1:999",
+			xffLines: []string{"6.6.6.6", "203.0.113.9"},
+			expected: "203.0.113.9",
+		},
+		{
+			name:     "multi-line XFF with a chain on the proxy line",
+			trusted:  []any{"10.0.0.0/8"},
+			remote:   "10.0.0.1:999",
+			xffLines: []string{"6.6.6.6", "203.0.113.9, 10.0.0.2"},
+			expected: "203.0.113.9",
+		},
+		{
+			name:     "multi-line XFF from an untrusted peer is still ignored",
+			trusted:  []any{"10.0.0.0/8"},
+			remote:   "203.0.113.9:4444",
+			xffLines: []string{"6.6.6.6", "1.2.3.4"},
+			expected: "203.0.113.9",
+		},
+		{
+			name:     "multi-line XFF with a malformed last line falls back to peer",
+			trusted:  []any{"10.0.0.0/8"},
+			remote:   "10.0.0.1:999",
+			xffLines: []string{"6.6.6.6", "garbage"},
+			expected: "10.0.0.1",
+		},
+		{
+			name:     "multi-line X-Real-IP takes the last line",
+			trusted:  []any{"10.0.0.0/8"},
+			remote:   "10.0.0.1:999",
+			xriLines: []string{"6.6.6.6", "203.0.113.9"},
+			expected: "203.0.113.9",
+		},
+
+		// IPv6.
+		{
+			name:     "IPv6 peer untrusted ignores XFF",
+			trusted:  []any{"2001:db8::/32"},
+			remote:   "[2001:db9::1]:4444",
+			xff:      "2001:db8::99",
+			expected: "2001:db9::1",
+		},
+		{
+			name:     "IPv6 trusted peer honours IPv6 XFF",
+			trusted:  []any{"2001:db8::/32"},
+			remote:   "[2001:db8::1]:4444",
+			xff:      "2606:4700::1111, 2001:db8::2",
+			expected: "2606:4700::1111",
+		},
+		{
+			name:     "IPv6 trusted peer with bracketed XFF entry",
+			trusted:  []any{"2001:db8::/32"},
+			remote:   "[2001:db8::1]:4444",
+			xff:      "[2606:4700::1111]:443",
+			expected: "2606:4700::1111",
+		},
+		{
+			name:     "IPv6 trusted peer with IPv4 client",
+			trusted:  []any{"2001:db8::/32"},
+			remote:   "[2001:db8::1]:4444",
+			xff:      "1.2.3.4",
+			expected: "1.2.3.4",
+		},
+		{
+			name:     "IPv4-mapped IPv6 peer matches an IPv4 CIDR",
+			trusted:  []any{"10.0.0.0/8"},
+			remote:   "[::ffff:10.0.0.1]:1234",
+			xff:      "1.2.3.4",
+			expected: "1.2.3.4",
+		},
+		{
+			name:     "IPv4-mapped XFF entry normalises to IPv4",
+			trusted:  []any{"10.0.0.0/8"},
+			remote:   "10.0.0.1:1234",
+			xff:      "::ffff:1.2.3.4",
+			expected: "1.2.3.4",
+		},
+		{
+			name:     "IPv6 zone is stripped from the key",
+			trusted:  []any{"10.0.0.0/8"},
+			remote:   "10.0.0.1:1234",
+			xff:      "fe80::1%eth0",
+			expected: "fe80::1",
+		},
+		{
+			name:     "mixed IPv4 and IPv6 trusted set",
+			trusted:  []any{"10.0.0.0/8", "2001:db8::/32"},
+			remote:   "[2001:db8::1]:4444",
+			xff:      "203.0.113.5, 10.0.0.2, 2001:db8::2",
+			expected: "203.0.113.5",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			p := New()
+			cfg := map[string]any{}
+			if tt.trusted != nil {
+				cfg["trusted_proxies"] = tt.trusted
+			}
+			if err := p.Init(cfg); err != nil {
+				t.Fatalf("Init failed: %v", err)
+			}
+
 			req, _ := http.NewRequest("GET", "/", nil)
 			req.RemoteAddr = tt.remote
 			if tt.xff != "" {
 				req.Header.Set("X-Forwarded-For", tt.xff)
 			}
+			for _, line := range tt.xffLines {
+				req.Header.Add("X-Forwarded-For", line)
+			}
 			if tt.xri != "" {
 				req.Header.Set("X-Real-IP", tt.xri)
 			}
-			got := clientIP(req)
+			for _, line := range tt.xriLines {
+				req.Header.Add("X-Real-IP", line)
+			}
+			got := p.clientIP(req)
 			if got != tt.expected {
 				t.Errorf("expected %q, got %q", tt.expected, got)
 			}
 		})
+	}
+}
+
+func TestInitTrustedProxiesInvalid(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  any
+	}{
+		{"bad CIDR", []any{"10.0.0.0/99"}},
+		{"bad address", []any{"not-an-ip"}},
+		{"non-string entry", []any{42}},
+		{"not a list", "10.0.0.0/8"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := New()
+			if err := p.Init(map[string]any{"trusted_proxies": tt.cfg}); err == nil {
+				t.Fatal("expected Init to reject invalid trusted_proxies")
+			}
+		})
+	}
+}
+
+func TestInitTrustedProxiesAcceptsStringSlice(t *testing.T) {
+	p := New()
+	if err := p.Init(map[string]any{"trusted_proxies": []string{"10.0.0.0/8", " ", "192.168.1.1"}}); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	if len(p.trustedProxies) != 2 {
+		t.Fatalf("expected 2 prefixes, got %d", len(p.trustedProxies))
+	}
+}
+
+// A client varying X-Forwarded-For from an untrusted peer must not mint a new
+// bucket per request; all of them share the peer's bucket.
+func TestSpoofedXFFCannotEscapePerIPLimit(t *testing.T) {
+	p := New()
+	if err := p.Init(map[string]any{
+		"requests_per_minute": 2,
+		"per_ip":              true,
+		"trusted_proxies":     []any{"10.0.0.0/8"},
+	}); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	allowed := 0
+	for i := 0; i < 5; i++ {
+		req, _ := http.NewRequest("POST", "/v1/chat/completions", nil)
+		req.RemoteAddr = "203.0.113.9:4444"
+		req.Header.Set("X-Forwarded-For", fmt.Sprintf("1.2.3.%d", i))
+		ctx := &plugin.RequestContext{Request: req, Metadata: make(map[string]any)}
+		_ = p.PreHTTP(ctx)
+		if !ctx.ShortCircuit {
+			allowed++
+		}
+	}
+	if allowed != 2 {
+		t.Fatalf("expected 2 allowed requests, got %d", allowed)
+	}
+
+	p.mu.Lock()
+	n := len(p.buckets)
+	p.mu.Unlock()
+	if n != 1 {
+		t.Fatalf("expected 1 bucket for the spoofing client, got %d", n)
+	}
+}
+
+// Distinct clients behind a trusted proxy still get independent buckets.
+func TestTrustedProxyGivesPerClientBuckets(t *testing.T) {
+	p := New()
+	if err := p.Init(map[string]any{
+		"requests_per_minute": 1,
+		"per_ip":              true,
+		"trusted_proxies":     []any{"10.0.0.0/8"},
+	}); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	newReq := func(xff string) *plugin.RequestContext {
+		req, _ := http.NewRequest("POST", "/v1/chat/completions", nil)
+		req.RemoteAddr = "10.0.0.1:1234"
+		req.Header.Set("X-Forwarded-For", xff)
+		return &plugin.RequestContext{Request: req, Metadata: make(map[string]any)}
+	}
+
+	ctxA := newReq("1.2.3.4, 10.0.0.2")
+	_ = p.PreHTTP(ctxA)
+	if ctxA.ShortCircuit {
+		t.Fatal("client A first request should have been allowed")
+	}
+
+	ctxA2 := newReq("1.2.3.4, 10.0.0.2")
+	_ = p.PreHTTP(ctxA2)
+	if !ctxA2.ShortCircuit {
+		t.Fatal("client A second request should have been rate-limited")
+	}
+
+	ctxB := newReq("5.6.7.8, 10.0.0.2")
+	_ = p.PreHTTP(ctxB)
+	if ctxB.ShortCircuit {
+		t.Fatal("client B should NOT be rate-limited")
 	}
 }
 
