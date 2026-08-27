@@ -717,6 +717,23 @@ func TestAnthropicMessages_Streaming(t *testing.T) {
 	}
 }
 
+// waitForUsage polls the store until pred holds or the deadline passes, then
+// returns the last snapshot so the caller's assertions report actual values.
+// Usage is recorded off an async goroutine and RecordRequest bumps the
+// top-level counters before the per-model ones, so polling on TotalRequests
+// alone races any per-model assertion that follows.
+func waitForUsage(t *testing.T, store *appkey.Store, key string, pred func(*appkey.UsageSnapshot) bool) *appkey.UsageSnapshot {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		snap := store.Lookup(key).Snapshot()
+		if pred(snap) || time.Now().After(deadline) {
+			return snap
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 func TestAnthropicMessages_UsageTracking(t *testing.T) {
 	mockProvider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -763,16 +780,12 @@ func TestAnthropicMessages_UsageTracking(t *testing.T) {
 		t.Errorf("response body lost: %s", body)
 	}
 
-	// Wait for async usage recording.
-	deadline := time.Now().Add(time.Second)
-	var snap *appkey.UsageSnapshot
-	for time.Now().Before(deadline) {
-		snap = store.Lookup(key).Snapshot()
-		if snap.TotalRequests > 0 {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+	// Wait for async usage recording, including the per-model token counters
+	// asserted below.
+	snap := waitForUsage(t, store, key, func(s *appkey.UsageSnapshot) bool {
+		m := s.Models["claude-3"]
+		return m != nil && m.PromptTokens > 0 && m.CompletionTokens > 0
+	})
 	if snap == nil || snap.TotalRequests != 1 {
 		t.Fatalf("expected total_requests=1, got snapshot=%+v", snap)
 	}
@@ -839,15 +852,9 @@ func TestAnthropicMessages_StreamingUsageTracking(t *testing.T) {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 
-	deadline := time.Now().Add(time.Second)
-	var snap *appkey.UsageSnapshot
-	for time.Now().Before(deadline) {
-		snap = store.Lookup(key).Snapshot()
-		if snap.TotalRequests > 0 {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+	snap := waitForUsage(t, store, key, func(s *appkey.UsageSnapshot) bool {
+		return s.Models["claude-3"] != nil
+	})
 	if snap == nil || snap.TotalRequests != 1 {
 		t.Fatalf("expected total_requests=1, got snapshot=%+v", snap)
 	}
