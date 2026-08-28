@@ -54,7 +54,7 @@ jobs:
       - uses: actions/checkout@v7
       # Third-party action pinned to a full commit SHA (supply-chain hardening).
       - name: Grype filesystem scan
-        uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
+        uses: anchore/scan-action@8964e60c6fabdb85fdbbbfd9834d8f19c97a3086 # v7.4.1
         id: grype
         with:
           path: "."
