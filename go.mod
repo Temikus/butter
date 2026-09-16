@@ -6,7 +6,7 @@ require (
 	github.com/alicebob/miniredis/v2 v2.39.0
 	github.com/aws/aws-sdk-go-v2 v1.47.0
 	github.com/aws/aws-sdk-go-v2/config v1.33.5
-	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.62.0
+	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.63.0
 	github.com/extism/go-pdk v1.1.3
 	github.com/extism/go-sdk v1.7.1
 	github.com/prometheus/client_golang v1.24.1

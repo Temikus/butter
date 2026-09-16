@@ -38,6 +38,8 @@ github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.61.0 h1:XP0Fd1oNCnz5d5Iwi
 github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.61.0/go.mod h1:CR6udAJMghp5ZLg2hfDStKNnPOAENfaqzGUy+p/ma8g=
 github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.62.0 h1:B9lfzZ1wK3jWA8fBoy4YvSpTNwaMkYyzx8S0ktoCTXs=
 github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.62.0/go.mod h1:7P+JIqwRqUIlzGn7Ba0qbSbPV/zsdZk7VkJTEFO6Z3U=
+github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.63.0 h1:0YDtf7baintcPG68AG0sMdAVoV1Iej6eXIBh38sd1m4=
+github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.63.0/go.mod h1:7P+JIqwRqUIlzGn7Ba0qbSbPV/zsdZk7VkJTEFO6Z3U=
 github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.19 h1:bAdDl/HkGCcGPoe25ToSHEw23VIxt6CT5fLcg111BKg=
 github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.19/go.mod h1:KaUzbLxv4CeSxh6ZCl9B4m7CuFenS8kUEaDs+f/DQr4=
 github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.2 h1:ZtHYnumr6QyxhzEzNZwzQTFJEXOswrZqTTkRxthwvr4=
