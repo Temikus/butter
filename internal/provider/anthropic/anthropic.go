@@ -15,8 +15,8 @@ import (
 )
 
 const (
-	defaultBaseURL    = "https://api.anthropic.com/v1"
-	anthropicVersion  = "2023-06-01"
+	defaultBaseURL   = "https://api.anthropic.com/v1"
+	anthropicVersion = "2023-06-01"
 )
 
 // Provider implements provider.Provider for the Anthropic Messages API.

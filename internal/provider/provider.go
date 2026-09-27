@@ -63,17 +63,17 @@ type Stream interface {
 
 // ChatRequest is the unified chat completion request (OpenAI-compatible).
 type ChatRequest struct {
-	Model       string         `json:"model"`
-	Messages    []Message      `json:"messages"`
-	Stream      bool           `json:"stream,omitempty"`
-	Temperature *float64       `json:"temperature,omitempty"`
-	MaxTokens   *int           `json:"max_tokens,omitempty"`
-	TopP        *float64       `json:"top_p,omitempty"`
-	Stop        any            `json:"stop,omitempty"`
+	Model       string    `json:"model"`
+	Messages    []Message `json:"messages"`
+	Stream      bool      `json:"stream,omitempty"`
+	Temperature *float64  `json:"temperature,omitempty"`
+	MaxTokens   *int      `json:"max_tokens,omitempty"`
+	TopP        *float64  `json:"top_p,omitempty"`
+	Stop        any       `json:"stop,omitempty"`
 	// RawBody preserves the original request body for passthrough/unknown fields.
-	RawBody     []byte         `json:"-"`
+	RawBody []byte `json:"-"`
 	// APIKey is set by the proxy engine before dispatch.
-	APIKey      string         `json:"-"`
+	APIKey string `json:"-"`
 }
 
 type Message struct {

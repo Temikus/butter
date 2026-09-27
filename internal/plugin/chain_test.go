@@ -12,12 +12,12 @@ import (
 // trackingTransportPlugin records call order and can optionally error.
 type trackingTransportPlugin struct {
 	stubPlugin
-	preOrder     *[]string
-	postOrder    *[]string
-	chunkOrder   *[]string
-	preErr       error
-	postErr      error
-	chunkErr     error
+	preOrder       *[]string
+	postOrder      *[]string
+	chunkOrder     *[]string
+	preErr         error
+	postErr        error
+	chunkErr       error
 	chunkTransform func([]byte) []byte
 }
 
@@ -51,10 +51,10 @@ func (p *trackingTransportPlugin) StreamChunk(ctx *RequestContext, chunk []byte)
 // trackingLLMPlugin records call order and can modify context/response.
 type trackingLLMPlugin struct {
 	stubPlugin
-	preOrder    *[]string
-	postOrder   *[]string
-	preErr      error
-	postErr     error
+	preOrder      *[]string
+	postOrder     *[]string
+	preErr        error
+	postErr       error
 	preTransform  func(*RequestContext) *RequestContext
 	postTransform func(*Response) *Response
 }

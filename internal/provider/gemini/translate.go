@@ -25,9 +25,9 @@ type openaiMessage struct {
 }
 
 type geminiRequest struct {
-	Contents         []geminiContent    `json:"contents"`
+	Contents          []geminiContent   `json:"contents"`
 	SystemInstruction *geminiContent    `json:"systemInstruction,omitempty"`
-	GenerationConfig *generationConfig  `json:"generationConfig,omitempty"`
+	GenerationConfig  *generationConfig `json:"generationConfig,omitempty"`
 }
 
 type geminiContent struct {
@@ -40,10 +40,10 @@ type geminiPart struct {
 }
 
 type generationConfig struct {
-	Temperature    *float64 `json:"temperature,omitempty"`
-	MaxOutputTokens *int    `json:"maxOutputTokens,omitempty"`
-	TopP           *float64 `json:"topP,omitempty"`
-	StopSequences  []string `json:"stopSequences,omitempty"`
+	Temperature     *float64 `json:"temperature,omitempty"`
+	MaxOutputTokens *int     `json:"maxOutputTokens,omitempty"`
+	TopP            *float64 `json:"topP,omitempty"`
+	StopSequences   []string `json:"stopSequences,omitempty"`
 }
 
 // translateRequest converts an OpenAI-format request body to Gemini generateContent format.
@@ -58,9 +58,9 @@ func translateRequest(rawBody []byte) ([]byte, string, error) {
 
 	// Build generation config.
 	gc := &generationConfig{
-		Temperature:    oai.Temperature,
+		Temperature:     oai.Temperature,
 		MaxOutputTokens: oai.MaxTokens,
-		TopP:           oai.TopP,
+		TopP:            oai.TopP,
 	}
 	if len(oai.Stop) > 0 {
 		seqs, err := parseStopField(oai.Stop)
@@ -270,17 +270,17 @@ type streamState struct {
 }
 
 type openaiStreamChunk struct {
-	ID      string              `json:"id"`
-	Object  string              `json:"object"`
-	Created int64               `json:"created"`
-	Model   string              `json:"model"`
+	ID      string               `json:"id"`
+	Object  string               `json:"object"`
+	Created int64                `json:"created"`
+	Model   string               `json:"model"`
 	Choices []openaiStreamChoice `json:"choices"`
 }
 
 type openaiStreamChoice struct {
-	Index        int                `json:"index"`
-	Delta        openaiStreamDelta  `json:"delta"`
-	FinishReason *string            `json:"finish_reason"`
+	Index        int               `json:"index"`
+	Delta        openaiStreamDelta `json:"delta"`
+	FinishReason *string           `json:"finish_reason"`
 }
 
 type openaiStreamDelta struct {

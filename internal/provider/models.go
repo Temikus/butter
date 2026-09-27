@@ -3,7 +3,7 @@ package provider
 // ModelInfo represents a single model entry in the OpenAI-compatible models list.
 type ModelInfo struct {
 	ID      string `json:"id"`
-	Object  string `json:"object"`   // always "model"
+	Object  string `json:"object"` // always "model"
 	Created int64  `json:"created"`
 	OwnedBy string `json:"owned_by"`
 }
