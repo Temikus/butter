@@ -3,49 +3,50 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Butter — A Blazingly Fast AI Proxy Gateway</title>
-  <meta name="description" content="Butter is a high-performance AI proxy gateway written in Go. Unified OpenAI-compatible API, multi-provider routing, streaming support, and sub-50μs overhead.">
+  <title>Butter — One endpoint. Eleven providers. 48μs.</title>
+  <meta name="description" content="Butter is an open-source AI proxy gateway written in Go. OpenAI- and Anthropic-compatible, routes to 11 providers with failover, app keys, and usage tracking for about 48μs of overhead.">
 
   <!-- Open Graph -->
-  <meta property="og:title" content="Butter — A Blazingly Fast AI Proxy Gateway">
-  <meta property="og:description" content="High-performance AI proxy gateway written in Go. Unified OpenAI-compatible API with multi-provider routing and sub-50μs overhead.">
+  <meta property="og:title" content="Butter — One endpoint. Eleven providers. 48μs.">
+  <meta property="og:description" content="Open-source AI proxy gateway in Go. OpenAI- and Anthropic-compatible, 11 providers, failover, app keys, ~48μs overhead.">
   <meta property="og:type" content="website">
-  <meta property="og:url" content="https://temikus.github.io/butter/">
-  <meta property="og:image" content="https://temikus.github.io/butter/logo.jpg">
+  <meta property="og:url" content="https://butterproxy.org/">
+  <meta property="og:image" content="https://butterproxy.org/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
 
   <!-- Twitter Card -->
-  <meta name="twitter:card" content="summary">
-  <meta name="twitter:title" content="Butter — AI Proxy Gateway">
-  <meta name="twitter:description" content="High-performance AI proxy gateway written in Go with sub-50μs overhead.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Butter — AI proxy gateway">
+  <meta name="twitter:description" content="One endpoint. Eleven providers. 48μs of overhead. Written in Go.">
+  <meta name="twitter:image" content="https://butterproxy.org/og.png">
 
-  <!-- Styles -->
+  <link rel="icon" href="logo.jpg" type="image/jpeg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="style.css">
-  <link rel="icon" href="logo.jpg" type="image/png">
-
-  <!-- Prism.js for syntax highlighting -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.30.0/themes/prism-solarizedlight.min.css">
 </head>
 <body>
 
   <!-- ============ Nav ============ -->
   <nav class="nav">
-    <div class="nav-inner">
-      <a href="#" class="nav-brand">
-        <img src="logo_no_text.png" alt="Butter logo">
+    <div class="wrap nav-inner">
+      <a href="./" class="brand">
+        <img src="logo_no_text.png" alt="" width="74" height="32">
         Butter
+        <span class="version-pill">v0.6.3</span>
       </a>
-      <button class="nav-toggle" aria-label="Toggle navigation" onclick="document.querySelector('.nav-links').classList.toggle('open')">
+      <button class="nav-toggle" aria-label="Toggle navigation" aria-expanded="false">
         <span></span><span></span><span></span>
       </button>
       <ul class="nav-links">
+        <li><a href="docs.html">Docs</a></li>
         <li><a href="#features">Features</a></li>
-        <li><a href="#quickstart">Quick Start</a></li>
-        <li><a href="#sdk">SDK Examples</a></li>
-        <li><a href="#architecture">Architecture</a></li>
-        <li><a href="#performance">Performance</a></li>
+        <li><a href="compare.html">Compare</a></li>
         <li>
-          <a href="https://github.com/temikus/butter" class="github-link" target="_blank" rel="noopener">
-            <svg width="20" height="20" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          <a href="https://github.com/temikus/butter" class="btn btn-ink" target="_blank" rel="noopener">
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
             GitHub
           </a>
         </li>
@@ -53,296 +54,316 @@
     </div>
   </nav>
 
-  <!-- ============ Hero ============ -->
-  <section class="hero">
-    <img src="logo_no_text.png" alt="Butter logo" class="hero-logo">
-    <h1>A <span class="accent">blazingly fast</span> AI proxy gateway</h1>
-    <p class="subtitle">
-      Butter sits between your application and AI providers, offering a unified OpenAI-compatible API
-      with multi-provider routing, automatic failover, and sub-50μs overhead. Written in Go.
-    </p>
-    <div class="hero-buttons">
-      <a href="https://github.com/temikus/butter" class="btn btn-primary" target="_blank" rel="noopener">
-        <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-        View on GitHub
-      </a>
-      <a href="#quickstart" class="btn btn-secondary">Quick Start</a>
-    </div>
-  </section>
+  <main>
+    <!-- ============ Hero ============ -->
+    <section class="wrap hero">
+      <div class="hero-copy">
+        <span class="eyebrow">Open-source AI gateway · Go · Apache-2.0</span>
+        <h1>
+          <span>One endpoint.</span>
+          <span>Eleven providers.</span>
+          <span class="marker">48μs.</span>
+        </h1>
+        <p class="subtitle">
+          Butter is an OpenAI- and Anthropic-compatible proxy written in Go. Point your SDK at it and get
+          routing, failover, app keys, and usage tracking for about 48μs of overhead.
+        </p>
+        <div class="hero-buttons">
+          <a href="#quickstart" class="btn btn-ink">Quick start <span class="arrow" aria-hidden="true">→</span></a>
+          <a href="docs.html" class="btn btn-outline">Read the docs</a>
+        </div>
+      </div>
 
-  <!-- ============ Features ============ -->
-  <div class="section-alt">
-    <section class="section" id="features">
-      <h2 class="section-title">Features</h2>
-      <p class="section-subtitle">Everything you need to route AI traffic with confidence.</p>
+      <figure class="window diff-card" aria-label="Pointing the OpenAI Python SDK at Butter">
+        <div class="window-bar">
+          <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
+          <span class="window-title">app.py — the whole migration</span>
+        </div>
+<pre class="code"><span>from openai import OpenAI
 
-      <div class="features-grid">
-        <div class="feature-card">
-          <span class="icon">&#9889;</span>
-          <h3>OpenAI-Compatible API</h3>
-          <p>Drop-in replacement for any OpenAI SDK client. Just change the base URL.</p>
-        </div>
-        <div class="feature-card">
-          <span class="icon">&#127919;</span>
-          <h3>Multi-Provider Routing</h3>
-          <p>Route models to 11 providers — OpenAI, Anthropic, AWS Bedrock, Azure OpenAI, Gemini, OpenRouter, Groq, Mistral, Together.ai, Fireworks, Perplexity — with priority or round-robin strategies.</p>
-        </div>
-        <div class="feature-card">
-          <span class="icon">&#128259;</span>
-          <h3>Streaming &amp; SSE</h3>
-          <p>Full streaming support with immediate per-chunk flush via SSE relay.</p>
-        </div>
-        <div class="feature-card">
-          <span class="icon">&#128737;&#65039;</span>
-          <h3>Automatic Failover</h3>
-          <p>Configurable retry-on status codes with exponential backoff across providers.</p>
-        </div>
-        <div class="feature-card">
-          <span class="icon">&#128273;</span>
-          <h3>Key Rotation</h3>
-          <p>Weighted random key selection with per-key model allowlists.</p>
-        </div>
-        <div class="feature-card">
-          <span class="icon">&#128268;</span>
-          <h3>Plugin System</h3>
-          <p>Ordered hook chains (pre/post HTTP, pre/post LLM) with fail-open design. Built-in plugins for rate limiting, logging, metrics, and tracing. External plugins via WASM sandbox.</p>
-        </div>
-        <div class="feature-card">
-          <span class="icon">&#128695;</span>
-          <h3>Rate Limiting</h3>
-          <p>Built-in token bucket rate limiter with global or per-IP modes. Plugins can short-circuit requests before they reach providers.</p>
-        </div>
+client = OpenAI(</span><span class="del">-   base_url="https://api.openai.com/v1",</span><span class="add">+   base_url="http://localhost:8080/v1",</span><span>)
 
-        <div class="feature-card">
-          <span class="icon">&#128202;</span>
-          <h3>Prometheus Metrics</h3>
-          <p>Built-in metrics plugin powered by OTel SDK — request totals, latency histograms, and error counters exposed at <code>/metrics</code>.</p>
-        </div>
-        <div class="feature-card">
-          <span class="icon">&#9889;</span>
-          <h3>Response Caching</h3>
-          <p>In-memory LRU or Redis cache with TTL for deterministic requests (temperature=0, non-streaming). Reduces costs and latency for repeated queries.</p>
-        </div>
+client.chat.completions.create(
+    model="claude-sonnet-4-20250514",
+    messages=[{"role": "user", "content": "Hi"}],
+)</span><span class="note"># same SDK, any of 11 providers, failover included</span></pre>
+      </figure>
+    </section>
 
-        <div class="feature-card">
-          <span class="icon">&#129520;</span>
-          <h3>WASM Plugin Sandbox</h3>
-          <p>Load external <code>.wasm</code> plugins via <a href="https://extism.org/">Extism</a>/wazero — pure Go, no CGo, full sandbox isolation. Write plugins in Go, Rust, TypeScript, Python, and more.</p>
+    <!-- ============ Providers ============ -->
+    <section class="wrap providers" aria-label="Supported providers">
+      <span class="eyebrow">Routes to</span>
+      <ul class="provider-list">
+        <li>OpenAI</li>
+        <li>Anthropic</li>
+        <li>AWS Bedrock</li>
+        <li>Azure OpenAI</li>
+        <li>Gemini</li>
+        <li>OpenRouter</li>
+        <li>Groq</li>
+        <li>Mistral</li>
+        <li>Together</li>
+        <li>Fireworks</li>
+        <li>Perplexity</li>
+      </ul>
+    </section>
+
+    <!-- ============ Proof ============ -->
+    <section class="proof" id="performance">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 class="h2">Objectively measured.</h2>
+          <div class="bench-note">
+            <p>From the Go benchmark suite: <code class="cmd">just bench</code></p>
+            <p>Full methodology and hardware details are coming soon.</p>
+          </div>
         </div>
-        <div class="feature-card">
-          <span class="icon">&#128269;</span>
-          <h3>Distributed Tracing</h3>
-          <p>Built-in OpenTelemetry tracing plugin with OTLP HTTP export. Zero overhead when unconfigured.</p>
-        </div>
-        <div class="feature-card">
-          <span class="icon">&#128260;</span>
-          <h3>Config Hot-Reload</h3>
-          <p>Routing and key configuration reloads automatically on file change — no restart, no dropped connections.</p>
-        </div>
-        <div class="feature-card">
-          <span class="icon">&#128273;</span>
-          <h3>Application Keys</h3>
-          <p>Vend <code>btr_</code> tokens for usage tracking and attribution. Per-key request and token counters with optional <code>require_key</code> enforcement.</p>
-        </div>
-        <div class="feature-card">
-          <span class="icon">&#128737;&#65039;</span>
-          <h3>Prompt Injection Guard</h3>
-          <p>WASM plugin scanning for ~60 injection patterns across 7 categories with Unicode bypass detection. Block, log, or tag modes.</p>
-        </div>
-        <div class="feature-card">
-          <span class="icon">&#128209;</span>
-          <h3>Embeddings &amp; Models</h3>
-          <p>Full <code>/v1/embeddings</code> and <code>/v1/models</code> endpoints for SDK compatibility. Embeddings route through the same failover logic as chat.</p>
-        </div>
-        <div class="feature-card">
-          <span class="icon">&#128272;</span>
-          <h3>Credential Passthrough</h3>
-          <p>Per-provider <code>credential_mode</code> — <code>stored</code> injects managed keys; <code>passthrough</code> forwards the client's own auth headers unchanged.</p>
-        </div>
-        <div class="feature-card">
-          <span class="icon">&#128737;&#65039;</span>
-          <h3>Supply-Chain Security</h3>
-          <p>Release binaries signed with <a href="https://github.com/sigstore/cosign">cosign</a> (keyless OIDC), SLSA build-provenance attestations on Docker images, and syft SBOMs for every release.</p>
-        </div>
-        <div class="feature-card">
-          <span class="icon">&#128270;</span>
-          <h3>CI Security Scanning</h3>
-          <p>gosec SAST, betterleaks secret detection, and Grype vulnerability scanning run on push and weekly — results surfaced in the GitHub Security tab as SARIF.</p>
-        </div>
-        <div class="feature-card coming-soon">
-          <span class="coming-soon-badge">Coming Soon</span>
-          <h3>More Providers</h3>
-          <p>Vertex AI and more to match full Bifrost coverage.</p>
+        <div class="stats">
+          <div class="stat">
+            <span class="stat-value hot">48μs</span>
+            <span class="stat-label">Proxy overhead, non-streaming</span>
+            <span class="stat-note">target &lt;50μs · met</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value">91μs</span>
+            <span class="stat-label">Proxy overhead, streaming</span>
+            <span class="stat-note">per-chunk flush via SSE</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value">1.4μs</span>
+            <span class="stat-label">Engine dispatch</span>
+            <span class="stat-note">dispatch only, no network</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value">~3μs</span>
+            <span class="stat-label">Streaming usage opt-in</span>
+            <span class="stat-note">adds include_usage per request</span>
+          </div>
         </div>
       </div>
     </section>
-  </div>
 
-  <!-- ============ Quick Start ============ -->
-  <section class="section" id="quickstart">
-    <h2 class="section-title">Quick Start</h2>
-    <p class="section-subtitle">Up and running in under a minute.</p>
-
-    <div class="steps">
-      <div class="step">
-        <h3>Install</h3>
-        <p>Download the latest binary from <a href="https://github.com/temikus/butter/releases">GitHub Releases</a>, or build from source:</p>
-        <pre><code class="language-bash">git clone https://github.com/temikus/butter.git
-cd butter
-go build -o pkg/bin/butter ./cmd/butter/</code></pre>
+    <!-- ============ Features ============ -->
+    <section class="wrap features" id="features">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow">Features</span>
+          <h2 class="h2">Everything between your app and the model.</h2>
+        </div>
+        <p class="lede">Opt-in, with zero overhead when switched off. Stdlib HTTP, no framework.</p>
       </div>
 
-      <div class="step">
-        <h3>Configure</h3>
-        <pre><code class="language-bash">cp config.example.yaml config.yaml
+      <div class="groups">
+        <div class="group">
+          <span class="group-num">01</span>
+          <h3>Routing &amp; failover</h3>
+          <p>Send any model to any of 11 providers, and keep answering when one goes down.</p>
+          <ul>
+            <li>OpenAI + Anthropic-native APIs</li>
+            <li>Priority or round-robin routing</li>
+            <li>Retry-on status codes with backoff</li>
+            <li>Anthropic ↔ Bedrock failover</li>
+            <li>Weighted provider-key rotation</li>
+            <li>Response cache: LRU or Redis</li>
+          </ul>
+        </div>
+        <div class="group">
+          <span class="group-num">02</span>
+          <h3>Keys &amp; security</h3>
+          <p>Hand teams <code>btr_</code> keys instead of your provider keys, and take them back any time.</p>
+          <ul>
+            <li>Expiry, rotate, revoke, and purge</li>
+            <li>Per-key model and provider scopes</li>
+            <li>Per-key rate limits</li>
+            <li>Structured audit log</li>
+            <li>Stored or passthrough credentials</li>
+            <li>Signed releases, SLSA, SBOMs</li>
+          </ul>
+        </div>
+        <div class="group">
+          <span class="group-num">03</span>
+          <h3>Observability</h3>
+          <p>Know which key spent what, down to the token, streaming included.</p>
+          <ul>
+            <li>Per-key, per-model token usage</li>
+            <li>Prometheus metrics at <code>/metrics</code></li>
+            <li>OpenTelemetry tracing over OTLP</li>
+            <li><code>X-Request-Id</code> correlation</li>
+            <li>Request and stream body logging</li>
+          </ul>
+        </div>
+        <div class="group">
+          <span class="group-num">04</span>
+          <h3>WASM plugins</h3>
+          <p>Hook any request in any language that compiles to WebAssembly.</p>
+          <ul>
+            <li>Pre/post HTTP and LLM hooks</li>
+            <li>Extism/wazero sandbox, no CGo</li>
+            <li>Per-hook timeout and memory caps</li>
+            <li>Prompt-injection guard included</li>
+            <li>Config hot-reload, no restarts</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ Architecture ============ -->
+    <section class="architecture" id="architecture">
+      <div class="wrap">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">Architecture</span>
+            <h2 class="h2">One hop. Five stages.</h2>
+          </div>
+          <p class="lede">Streaming bytes are relayed as-is and flushed per chunk. Nothing is re-serialized on the way through.</p>
+        </div>
+
+        <div class="flow">
+          <div class="flow-client">
+            <strong>Your app</strong>
+            <span>any OpenAI or Anthropic SDK</span>
+          </div>
+          <svg class="flow-arrow" viewBox="0 0 56 14" aria-hidden="true"><path d="M4 7H48"/><path d="M44 2L51 7L44 12"/></svg>
+          <div class="flow-butter">
+            <div class="flow-butter-head">
+              <span class="flow-badge">Butter</span>
+              <span class="window-title">:8080 · single Go binary</span>
+            </div>
+            <ol class="stages">
+              <li class="stage"><span class="stage-num">01</span><span class="stage-name">Pre-hooks</span><span class="stage-desc">limits · WASM</span></li>
+              <li class="stage"><span class="stage-num">02</span><span class="stage-name">Engine</span><span class="stage-desc">route · scopes</span></li>
+              <li class="stage"><span class="stage-num">03</span><span class="stage-name">Cache</span><span class="stage-desc">LRU · Redis</span></li>
+              <li class="stage"><span class="stage-num">04</span><span class="stage-name">Provider</span><span class="stage-desc">retry · failover</span></li>
+              <li class="stage"><span class="stage-num">05</span><span class="stage-name">Post-hooks</span><span class="stage-desc">usage · metrics</span></li>
+            </ol>
+          </div>
+          <svg class="flow-arrow" viewBox="0 0 56 14" aria-hidden="true"><path d="M4 7H48"/><path d="M44 2L51 7L44 12"/></svg>
+          <ul class="flow-providers">
+            <li>OpenAI</li>
+            <li>Anthropic</li>
+            <li>AWS Bedrock</li>
+            <li class="more">+ 8 more</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ Quick Start ============ -->
+    <section class="wrap quickstart" id="quickstart">
+      <div class="qs-copy">
+        <span class="eyebrow">Quick start</span>
+        <h2 class="h2">Running in under a minute.</h2>
+        <p>Build from source or grab a signed release, export a provider key, and go. Config reloads live, so you can tune routing without a restart.</p>
+        <ul class="qs-links">
+          <li><a href="docs.html#configuration">Configuration reference →</a></li>
+          <li><a href="docs.html#app-keys">App keys guide →</a></li>
+          <li><a href="docs.html#plugins">Writing a WASM plugin →</a></li>
+        </ul>
+      </div>
+
+      <div class="window terminal">
+        <div class="tabs" role="tablist" aria-label="Install method">
+          <button class="tab" role="tab" id="tab-source" aria-controls="panel-source" aria-selected="true">Source</button>
+          <button class="tab" role="tab" id="tab-binary" aria-controls="panel-binary" aria-selected="false" tabindex="-1">Release binary</button>
+          <button class="tab" role="tab" id="tab-docker" aria-controls="panel-docker" aria-selected="false" tabindex="-1">Docker</button>
+        </div>
+        <div class="tab-panel" role="tabpanel" id="panel-source" aria-labelledby="tab-source">
+<pre class="code"><span class="c"># 1 · build</span>
+git clone https://github.com/temikus/butter.git &amp;&amp; cd butter
+go build -o pkg/bin/butter ./cmd/butter/
+
+<span class="c"># 2 · configure</span>
+cp config.example.yaml config.yaml
 export OPENAI_API_KEY="sk-..."
-export OPENROUTER_API_KEY="sk-or-v1-..."</code></pre>
-      </div>
 
-      <div class="step">
-        <h3>Run</h3>
-        <pre><code class="language-bash">./pkg/bin/butter -config config.yaml
-# {"level":"INFO","msg":"butter listening","address":":8080"}</code></pre>
-      </div>
+<span class="c"># 3 · run</span>
+./pkg/bin/butter -config config.yaml
+<span class="out">{"level":"INFO","msg":"butter listening","address":":8080"}</span></pre>
+        </div>
+        <div class="tab-panel" role="tabpanel" id="panel-binary" aria-labelledby="tab-binary" hidden>
+<pre class="code"><span class="c"># 1 · download (linux|darwin, amd64|arm64)</span>
+V=0.6.3 P=darwin_arm64
+curl -LO https://github.com/temikus/butter/releases/download/v$V/butter_${V}_${P}.tar.gz
+tar -xzf butter_${V}_${P}.tar.gz
+<span class="c"># checksums.txt is cosign-signed; see the release page</span>
 
-      <div class="step">
-        <h3>Send a request</h3>
-        <pre><code class="language-bash">curl http://localhost:8080/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "openai/gpt-4o-mini",
-    "messages": [{"role": "user", "content": "Say hello!"}]
-  }'</code></pre>
-      </div>
-    </div>
-  </section>
+<span class="c"># 2 · configure</span>
+curl -LO https://raw.githubusercontent.com/temikus/butter/main/config.example.yaml
+mv config.example.yaml config.yaml
+export OPENAI_API_KEY="sk-..."
 
-  <!-- ============ SDK Examples ============ -->
-  <div class="section-alt">
-    <section class="section" id="sdk">
-      <h2 class="section-title">Drop-in SDK Replacement</h2>
-      <p class="section-subtitle">Works with any OpenAI-compatible client. Just change the base URL.</p>
+<span class="c"># 3 · run</span>
+./butter -config config.yaml
+<span class="out">{"level":"INFO","msg":"butter listening","address":":8080"}</span></pre>
+        </div>
+        <div class="tab-panel" role="tabpanel" id="panel-docker" aria-labelledby="tab-docker" hidden>
+<pre class="code"><span class="c"># 1 · configure</span>
+curl -LO https://raw.githubusercontent.com/temikus/butter/main/config.example.yaml
+mv config.example.yaml config.yaml
+export OPENAI_API_KEY="sk-..."
 
-      <div class="step">
-        <h3>Python</h3>
-        <pre><code class="language-python">from openai import OpenAI
-
-client = OpenAI(
-    base_url="http://localhost:8080/v1",
-    api_key="unused",  # Butter uses its own configured keys
-)
-
-response = client.chat.completions.create(
-    model="openai/gpt-4o-mini",
-    messages=[{"role": "user", "content": "Hello!"}],
-)
-print(response.choices[0].message.content)</code></pre>
-      </div>
-
-      <div class="step" style="margin-top: 32px;">
-        <h3>Node.js</h3>
-        <pre><code class="language-javascript">import OpenAI from "openai";
-
-const client = new OpenAI({
-  baseURL: "http://localhost:8080/v1",
-  apiKey: "unused",
-});
-
-const completion = await client.chat.completions.create({
-  model: "openai/gpt-4o-mini",
-  messages: [{ role: "user", content: "Hello!" }],
-});
-console.log(completion.choices[0].message.content);</code></pre>
+<span class="c"># 2 · run (distroless, cosign-signed, SLSA provenance)</span>
+docker run --rm -p 8080:8080 \
+  -v "$PWD/config.yaml:/config.yaml:ro" \
+  -e OPENAI_API_KEY \
+  ghcr.io/temikus/butter:0.6
+<span class="out">{"level":"INFO","msg":"butter listening","address":":8080"}</span></pre>
+        </div>
       </div>
     </section>
-  </div>
-
-  <!-- ============ Architecture ============ -->
-  <section class="section" id="architecture">
-    <h2 class="section-title">Architecture</h2>
-    <p class="section-subtitle">Minimal layers, maximum throughput.</p>
-
-    <div class="architecture-diagram">Your App ──▶ <span class="highlight">Butter</span> ──▶ OpenAI / Anthropic / Bedrock / Azure / Gemini / Groq / ...
-                │
-                ├── Unified OpenAI-compatible API
-                ├── Automatic failover &amp; retries
-                ├── Weighted key rotation
-                ├── Plugin hooks (pre/post HTTP, LLM, streaming)
-                └── WASM plugin sandbox (Extism/wazero)
-
-<span class="highlight">Request Flow:</span>
-
-Client → transport.Server (HTTP)
-       → Plugin Chain (built-in + WASM pre-hooks)
-       → proxy.Engine (routing/dispatch)
-       → Response Cache (LRU, TTL)
-       → provider.Registry → Provider impl
-       → Plugin Chain (built-in + WASM post-hooks)
-       → Response</div>
-  </section>
-
-  <!-- ============ Performance ============ -->
-  <div class="section-alt">
-    <section class="section" id="performance">
-      <h2 class="section-title">Performance Targets</h2>
-      <p class="section-subtitle">Engineered for negligible overhead.</p>
-
-      <table class="perf-table">
-        <thead>
-          <tr>
-            <th>Metric</th>
-            <th>Target</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>Per-request overhead (no plugins)</td>
-            <td class="target">&lt;50μs</td>
-          </tr>
-          <tr>
-            <td>Per-request overhead (built-in plugins)</td>
-            <td class="target">&lt;100μs</td>
-          </tr>
-          <tr>
-            <td>Per-request overhead (1 WASM plugin)</td>
-            <td class="target">&lt;150μs</td>
-          </tr>
-          <tr>
-            <td>Streaming TTFB overhead</td>
-            <td class="target">&lt;1ms</td>
-          </tr>
-          <tr>
-            <td>Memory at idle</td>
-            <td class="target">&lt;30MB</td>
-          </tr>
-        </tbody>
-      </table>
-    </section>
-  </div>
+  </main>
 
   <!-- ============ Footer ============ -->
   <footer class="footer">
-    <div class="footer-inner">
-      <div class="footer-badges">
-        <a href="https://github.com/Temikus/butter/releases"><img src="https://img.shields.io/github/v/release/Temikus/butter" alt="Release" height="20"></a>
-        <a href="https://github.com/Temikus/butter/actions/workflows/ci.yml"><img src="https://github.com/Temikus/butter/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI" height="20"></a>
-        <a href="https://github.com/Temikus/butter/actions/workflows/security.yml"><img src="https://github.com/Temikus/butter/actions/workflows/security.yml/badge.svg?branch=main" alt="Security" height="20"></a>
-        <a href="https://goreportcard.com/report/github.com/temikus/butter"><img src="https://goreportcard.com/badge/github.com/temikus/butter" alt="Go Report Card" height="20"></a>
-        <a href="https://github.com/Temikus/butter/blob/main/go.mod"><img src="https://img.shields.io/github/go-mod/go-version/Temikus/butter" alt="Go Version" height="20"></a>
-        <a href="https://github.com/Temikus/butter/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Temikus/butter" alt="License" height="20"></a>
+    <div class="wrap footer-inner">
+      <div class="footer-brand">
+        <a href="./" class="brand"><img src="logo_no_text.png" alt="" width="65" height="28">Butter</a>
+        <p>A fast AI proxy gateway, inspired by <a href="https://github.com/maximhq/bifrost" class="link-underline">Bifrost</a>. Apache-2.0. Signed releases with SLSA provenance and SBOMs.</p>
       </div>
-      <p>
-        <a href="https://github.com/temikus/butter">Butter</a> — A blazingly fast AI proxy gateway.
-        Inspired by <a href="https://github.com/maximhq/bifrost">Bifrost</a>.
-      </p>
+      <div class="footer-cols">
+        <ul>
+          <li class="eyebrow">Docs</li>
+          <li><a href="docs.html#quick-start">Quick start</a></li>
+          <li><a href="docs.html#configuration">Configuration</a></li>
+          <li><a href="docs.html#plugins">Plugins</a></li>
+        </ul>
+        <ul>
+          <li class="eyebrow">Project</li>
+          <li><a href="https://github.com/temikus/butter">GitHub</a></li>
+          <li><a href="https://github.com/temikus/butter/releases">Releases</a></li>
+          <li><a href="https://github.com/temikus/butter/blob/main/SECURITY.md">Security policy</a></li>
+          <li><a href="https://github.com/temikus/butter/releases">Changelog</a></li>
+        </ul>
+      </div>
     </div>
   </footer>
 
-  <!-- Prism.js -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.30.0/prism.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.30.0/components/prism-bash.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.30.0/components/prism-python.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.30.0/components/prism-javascript.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.30.0/components/prism-yaml.min.js"></script>
+  <script>
+    // Mobile nav toggle.
+    const toggle = document.querySelector('.nav-toggle');
+    toggle.addEventListener('click', () => {
+      const open = document.querySelector('.nav-links').classList.toggle('open');
+      toggle.setAttribute('aria-expanded', open);
+    });
+
+    // Install-method tabs (ARIA tabs pattern: click + arrow keys).
+    const tabs = [...document.querySelectorAll('[role="tab"]')];
+    function select(tab) {
+      tabs.forEach(t => {
+        const on = t === tab;
+        t.setAttribute('aria-selected', on);
+        t.tabIndex = on ? 0 : -1;
+        document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+      });
+      tab.focus();
+    }
+    tabs.forEach((t, i) => {
+      t.addEventListener('click', () => select(t));
+      t.addEventListener('keydown', e => {
+        const step = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
+        if (step) select(tabs[(i + step + tabs.length) % tabs.length]);
+      });
+    });
+  </script>
 </body>
 </html>

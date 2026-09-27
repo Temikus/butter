@@ -13,6 +13,7 @@ just vet                              # Static analysis
 just lint                             # Run golangci-lint
 just check                            # Run vet + lint + test
 just bench                            # Run benchmarks with allocation reporting
+just web                              # Preview the marketing site (web/) at localhost:8000
 just release-snapshot                 # Test GoReleaser locally (no publish)
 just test-one ./internal/proxy/ TestDispatch  # Run a single test
 just build-example-wasm               # Compile example WASM plugin (requires TinyGo ≥ 0.34)

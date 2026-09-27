@@ -113,6 +113,11 @@ docker-run tag="latest" config="config.yaml":
       -v "$(pwd)/{{config}}:/config.yaml:ro" \
       butter:{{tag}}
 
+# Preview the marketing site (web/) locally: just web [port]
+web port="8000":
+    @echo "Serving web/ at http://localhost:{{port}} (Ctrl-C to stop)"
+    python3 -m http.server -d web {{port}}
+
 # Benchmarks with allocation reporting
 bench:
     go test ./... -bench=. -benchmem
