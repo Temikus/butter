@@ -9,7 +9,6 @@ import (
 	"time"
 )
 
-
 const minimalConfig = `
 server:
   address: ":8080"

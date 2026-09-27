@@ -513,7 +513,7 @@ func TestFailoverNextProvider(t *testing.T) {
 		},
 	}
 	secondary := &mockProvider{
-		name: "secondary",
+		name:     "secondary",
 		response: &provider.ChatResponse{RawBody: []byte(`{"from":"secondary"}`), StatusCode: 200},
 	}
 
@@ -636,7 +636,7 @@ func TestFailoverNonProviderError(t *testing.T) {
 		},
 	}
 	secondary := &mockProvider{
-		name: "secondary",
+		name:     "secondary",
 		response: &provider.ChatResponse{RawBody: []byte(`{"from":"secondary"}`), StatusCode: 200},
 	}
 

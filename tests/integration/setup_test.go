@@ -32,7 +32,7 @@ import (
 // serverCfg holds options for building a Butter test server.
 // Provider base URLs point at mock httptest servers, not real APIs.
 type serverCfg struct {
-	providers      map[string]string   // provider name → mock base URL
+	providers      map[string]string // provider name → mock base URL
 	defaultProv    string
 	modelRoutes    map[string][]string // model → ordered provider list
 	failover       bool

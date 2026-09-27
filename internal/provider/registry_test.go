@@ -15,8 +15,8 @@ type stubProvider struct {
 	name string
 }
 
-func (s *stubProvider) Name() string                          { return s.name }
-func (s *stubProvider) SupportsOperation(op Operation) bool   { return true }
+func (s *stubProvider) Name() string                        { return s.name }
+func (s *stubProvider) SupportsOperation(op Operation) bool { return true }
 func (s *stubProvider) ChatCompletion(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
 	return nil, nil
 }

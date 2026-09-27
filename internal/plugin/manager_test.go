@@ -9,16 +9,16 @@ import (
 
 // stubPlugin implements Plugin only.
 type stubPlugin struct {
-	name      string
-	initCfg   map[string]any
-	initErr   error
-	closeErr  error
-	closed    bool
+	name       string
+	initCfg    map[string]any
+	initErr    error
+	closeErr   error
+	closed     bool
 	closeOrder *[]string
 }
 
 func (s *stubPlugin) Name() string                  { return s.name }
-func (s *stubPlugin) Init(cfg map[string]any) error  { s.initCfg = cfg; return s.initErr }
+func (s *stubPlugin) Init(cfg map[string]any) error { s.initCfg = cfg; return s.initErr }
 func (s *stubPlugin) Close() error {
 	s.closed = true
 	if s.closeOrder != nil {
@@ -32,12 +32,16 @@ type multiPlugin struct {
 	stubPlugin
 }
 
-func (m *multiPlugin) PreHTTP(ctx *RequestContext) error                         { return nil }
-func (m *multiPlugin) PostHTTP(ctx *RequestContext) error                        { return nil }
-func (m *multiPlugin) StreamChunk(ctx *RequestContext, chunk []byte) ([]byte, error) { return chunk, nil }
-func (m *multiPlugin) PreLLM(ctx *RequestContext) (*RequestContext, error)       { return ctx, nil }
-func (m *multiPlugin) PostLLM(ctx *RequestContext, resp *Response) (*Response, error) { return resp, nil }
-func (m *multiPlugin) OnTrace(trace *RequestTrace)                              {}
+func (m *multiPlugin) PreHTTP(ctx *RequestContext) error  { return nil }
+func (m *multiPlugin) PostHTTP(ctx *RequestContext) error { return nil }
+func (m *multiPlugin) StreamChunk(ctx *RequestContext, chunk []byte) ([]byte, error) {
+	return chunk, nil
+}
+func (m *multiPlugin) PreLLM(ctx *RequestContext) (*RequestContext, error) { return ctx, nil }
+func (m *multiPlugin) PostLLM(ctx *RequestContext, resp *Response) (*Response, error) {
+	return resp, nil
+}
+func (m *multiPlugin) OnTrace(trace *RequestTrace) {}
 
 func testLogger() *slog.Logger {
 	return slog.New(slog.NewJSONHandler(io.Discard, nil))

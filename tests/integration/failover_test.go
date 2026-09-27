@@ -63,7 +63,7 @@ func TestFailover_FallsBackToSecondProvider(t *testing.T) {
 		withProvider("openai", primaryMock.URL).
 		withProvider("openrouter", secondaryMock.URL).
 		withModel("gpt-4o", "openai", "openrouter"). // priority order
-		withFailover().                               // maxRetries=2 → 3 primary attempts
+		withFailover().                              // maxRetries=2 → 3 primary attempts
 		build(t)
 
 	resp, err := http.Post(butter.URL+"/v1/chat/completions", "application/json", strings.NewReader(reqGPT4o))

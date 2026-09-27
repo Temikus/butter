@@ -15,13 +15,13 @@ const defaultMaxTokens = 4096
 
 // openaiRequest is the subset of OpenAI chat completion fields we translate.
 type openaiRequest struct {
-	Model       string            `json:"model"`
-	Messages    []openaiMessage   `json:"messages"`
-	Stream      bool              `json:"stream,omitempty"`
-	MaxTokens   *int              `json:"max_tokens,omitempty"`
-	Temperature *float64          `json:"temperature,omitempty"`
-	TopP        *float64          `json:"top_p,omitempty"`
-	Stop        json.RawMessage   `json:"stop,omitempty"`
+	Model       string          `json:"model"`
+	Messages    []openaiMessage `json:"messages"`
+	Stream      bool            `json:"stream,omitempty"`
+	MaxTokens   *int            `json:"max_tokens,omitempty"`
+	Temperature *float64        `json:"temperature,omitempty"`
+	TopP        *float64        `json:"top_p,omitempty"`
+	Stop        json.RawMessage `json:"stop,omitempty"`
 }
 
 type openaiMessage struct {
@@ -175,9 +175,9 @@ type openaiResponse struct {
 }
 
 type openaiChoice struct {
-	Index        int           `json:"index"`
-	Message      openaiMsg     `json:"message"`
-	FinishReason *string       `json:"finish_reason"`
+	Index        int       `json:"index"`
+	Message      openaiMsg `json:"message"`
+	FinishReason *string   `json:"finish_reason"`
 }
 
 type openaiMsg struct {
@@ -258,17 +258,17 @@ type streamState struct {
 }
 
 type openaiStreamChunk struct {
-	ID      string              `json:"id"`
-	Object  string              `json:"object"`
-	Created int64               `json:"created"`
-	Model   string              `json:"model"`
+	ID      string               `json:"id"`
+	Object  string               `json:"object"`
+	Created int64                `json:"created"`
+	Model   string               `json:"model"`
 	Choices []openaiStreamChoice `json:"choices"`
 }
 
 type openaiStreamChoice struct {
-	Index        int                `json:"index"`
-	Delta        openaiStreamDelta  `json:"delta"`
-	FinishReason *string            `json:"finish_reason"`
+	Index        int               `json:"index"`
+	Delta        openaiStreamDelta `json:"delta"`
+	FinishReason *string           `json:"finish_reason"`
 }
 
 type openaiStreamDelta struct {

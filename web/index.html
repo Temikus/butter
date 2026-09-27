@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Butter — One endpoint. Eleven providers. 48μs.</title>
-  <meta name="description" content="Butter is an open-source AI proxy gateway written in Go. OpenAI- and Anthropic-compatible, routes to 11 providers with failover, app keys, and usage tracking for about 48μs of overhead.">
+  <title>Butter — One endpoint. Eleven providers. 59μs.</title>
+  <meta name="description" content="Butter is an open-source AI proxy gateway written in Go. OpenAI- and Anthropic-compatible, routes to 11 providers with failover, app keys, and usage tracking for about 59μs of overhead.">
 
   <!-- Open Graph -->
-  <meta property="og:title" content="Butter — One endpoint. Eleven providers. 48μs.">
-  <meta property="og:description" content="Open-source AI proxy gateway in Go. OpenAI- and Anthropic-compatible, 11 providers, failover, app keys, ~48μs overhead.">
+  <meta property="og:title" content="Butter — One endpoint. Eleven providers. 59μs.">
+  <meta property="og:description" content="Open-source AI proxy gateway in Go. OpenAI- and Anthropic-compatible, 11 providers, failover, app keys, ~59μs overhead.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://butterproxy.org/">
   <meta property="og:image" content="https://butterproxy.org/og.png">
@@ -18,7 +18,7 @@
   <!-- Twitter Card -->
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Butter — AI proxy gateway">
-  <meta name="twitter:description" content="One endpoint. Eleven providers. 48μs of overhead. Written in Go.">
+  <meta name="twitter:description" content="One endpoint. Eleven providers. 59μs of overhead. Written in Go.">
   <meta name="twitter:image" content="https://butterproxy.org/og.png">
 
   <link rel="icon" href="logo.jpg" type="image/jpeg">
@@ -62,11 +62,11 @@
         <h1>
           <span>One endpoint.</span>
           <span>Eleven providers.</span>
-          <span class="marker">48μs.</span>
+          <span class="marker">59μs.</span>
         </h1>
         <p class="subtitle">
           Butter is an OpenAI- and Anthropic-compatible proxy written in Go. Point your SDK at it and get
-          routing, failover, app keys, and usage tracking for about 48μs of overhead.
+          routing, failover, app keys, and usage tracking for about 59μs of overhead.
         </p>
         <div class="hero-buttons">
           <a href="#quickstart" class="btn btn-ink">Quick start <span class="arrow" aria-hidden="true">→</span></a>
@@ -115,27 +115,27 @@ client.chat.completions.create(
           <h2 class="h2">Objectively measured.</h2>
           <div class="bench-note">
             <p>From the Go benchmark suite: <code class="cmd">just bench</code></p>
-            <p>Full methodology and hardware details are coming soon.</p>
+            <p>Overhead is the proxied round trip minus a direct call to the same mock upstream. Median of 10 runs on an Apple M2.</p>
           </div>
         </div>
         <div class="stats">
           <div class="stat">
-            <span class="stat-value hot">48μs</span>
+            <span class="stat-value hot">59μs</span>
             <span class="stat-label">Proxy overhead, non-streaming</span>
-            <span class="stat-note">target &lt;50μs · met</span>
+            <span class="stat-note">bare net/http proxy: ~48μs</span>
           </div>
           <div class="stat">
-            <span class="stat-value">91μs</span>
+            <span class="stat-value">72μs</span>
             <span class="stat-label">Proxy overhead, streaming</span>
             <span class="stat-note">per-chunk flush via SSE</span>
           </div>
           <div class="stat">
-            <span class="stat-value">1.4μs</span>
+            <span class="stat-value">1.1μs</span>
             <span class="stat-label">Engine dispatch</span>
             <span class="stat-note">dispatch only, no network</span>
           </div>
           <div class="stat">
-            <span class="stat-value">~3μs</span>
+            <span class="stat-value">~2μs</span>
             <span class="stat-label">Streaming usage opt-in</span>
             <span class="stat-note">adds include_usage per request</span>
           </div>

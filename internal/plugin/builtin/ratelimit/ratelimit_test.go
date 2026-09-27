@@ -150,11 +150,11 @@ func TestBucketRefillCap(t *testing.T) {
 
 func TestClientIPExtraction(t *testing.T) {
 	tests := []struct {
-		name     string
-		trusted  []any
-		remote   string
-		xff      string
-		xri      string
+		name    string
+		trusted []any
+		remote  string
+		xff     string
+		xri     string
 		// xffLines / xriLines set repeated header lines, as proxies that add
 		// rather than append produce. Mutually exclusive with xff / xri.
 		xffLines []string

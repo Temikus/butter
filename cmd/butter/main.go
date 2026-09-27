@@ -23,7 +23,6 @@ import (
 	"github.com/temikus/butter/internal/plugin/builtin/requestlog"
 	"github.com/temikus/butter/internal/plugin/builtin/tracing"
 	pluginwasm "github.com/temikus/butter/internal/plugin/wasm"
-	"github.com/temikus/butter/internal/version"
 	"github.com/temikus/butter/internal/provider"
 	"github.com/temikus/butter/internal/provider/anthropic"
 	"github.com/temikus/butter/internal/provider/azureopenai"
@@ -38,6 +37,7 @@ import (
 	"github.com/temikus/butter/internal/provider/together"
 	"github.com/temikus/butter/internal/proxy"
 	"github.com/temikus/butter/internal/transport"
+	"github.com/temikus/butter/internal/version"
 )
 
 func main() { //nolint:gocyclo // composition root: wires config, providers, plugins and server
@@ -63,15 +63,7 @@ func main() { //nolint:gocyclo // composition root: wires config, providers, plu
 	// Build provider registry.
 	registry := provider.NewRegistry()
 
-	// Create a shared HTTP client with connection pooling.
-	httpClient := &http.Client{
-		Transport: &http.Transport{
-			MaxIdleConns:        100,
-			MaxIdleConnsPerHost: 20,
-			IdleConnTimeout:     90 * time.Second,
-		},
-		Timeout: cfg.Server.WriteTimeout,
-	}
+	httpClient := provider.NewHTTPClient(cfg.Server.WriteTimeout)
 
 	// Register configured providers.
 	for name, provCfg := range cfg.Providers {

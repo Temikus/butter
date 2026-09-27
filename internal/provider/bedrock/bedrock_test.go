@@ -243,8 +243,8 @@ type mockHTTPError struct {
 	code int
 }
 
-func (e *mockHTTPError) Error() string          { return "mock error" }
-func (e *mockHTTPError) HTTPStatusCode() int    { return e.code }
+func (e *mockHTTPError) Error() string       { return "mock error" }
+func (e *mockHTTPError) HTTPStatusCode() int { return e.code }
 
 func TestErrorStatusCode(t *testing.T) {
 	tests := []struct {

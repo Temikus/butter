@@ -852,8 +852,11 @@ func TestAnthropicMessages_StreamingUsageTracking(t *testing.T) {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 
+	// RecordRequest creates the model entry before incrementing it, so wait on
+	// the counter rather than the entry's presence.
 	snap := waitForUsage(t, store, key, func(s *appkey.UsageSnapshot) bool {
-		return s.Models["claude-3"] != nil
+		m := s.Models["claude-3"]
+		return m != nil && m.Requests > 0
 	})
 	if snap == nil || snap.TotalRequests != 1 {
 		t.Fatalf("expected total_requests=1, got snapshot=%+v", snap)
