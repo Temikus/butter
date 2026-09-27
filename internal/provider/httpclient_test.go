@@ -91,6 +91,39 @@ func TestNewHTTPClient_StreamOutlivesTimeout(t *testing.T) {
 	}
 }
 
+// An upstream that sends headers and then stalls must not hold the read open.
+func TestNewHTTPClient_BoundsBodyIdle(t *testing.T) {
+	const timeout = 100 * time.Millisecond
+
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "data: x\n\n")
+		w.(http.Flusher).Flush()
+		<-release
+	}))
+	defer srv.Close()
+	defer close(release)
+
+	client := provider.NewHTTPClient(timeout)
+	defer client.CloseIdleConnections()
+
+	resp, err := client.Get(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	start := time.Now()
+	_, err = io.ReadAll(resp.Body)
+	var netErr net.Error
+	if !errors.As(err, &netErr) || !netErr.Timeout() {
+		t.Errorf("got %v; want a timeout error", err)
+	}
+	if elapsed := time.Since(start); elapsed > 10*timeout {
+		t.Errorf("stalled body read took %v; want ~%v", elapsed, timeout)
+	}
+}
+
 func TestNewHTTPClient_BoundsResponseHeaderWait(t *testing.T) {
 	const timeout = 100 * time.Millisecond
 
