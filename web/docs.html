@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Docs — Butter</title>
-  <meta name="description" content="Butter documentation: quick start, configuration, application keys, and WASM plugins.">
-  <meta property="og:title" content="Docs — Butter">
+  <title>Configuration — Butter Docs</title>
+  <meta name="description" content="Configure Butter: providers and keys, model routing and failover, response caching, and server limits, all in one hot-reloaded YAML file.">
+  <meta property="og:title" content="Configuration — Butter Docs">
   <meta property="og:url" content="https://butterproxy.org/docs.html">
   <meta property="og:image" content="https://butterproxy.org/og.png">
   <meta name="twitter:card" content="summary_large_image">
@@ -30,42 +30,202 @@
       <ul class="nav-links">
         <li><a href="docs.html" aria-current="page">Docs</a></li>
         <li><a href="./#features">Features</a></li>
-        <li><a href="compare.html">Compare</a></li>
-        <li><a href="https://github.com/temikus/butter" class="btn btn-ink" target="_blank" rel="noopener">GitHub</a></li>
+        <li>
+          <a href="https://github.com/temikus/butter" class="btn btn-ink" target="_blank" rel="noopener">
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+            GitHub
+          </a>
+        </li>
       </ul>
     </div>
   </nav>
 
-  <main class="wrap page">
-    <span class="eyebrow">Docs</span>
-    <h1 class="h2">Documentation</h1>
-    <span class="soon">Full guides coming soon</span>
-    <p>Until the guides land here, each section below points at the source of truth in the repository.</p>
+  <div class="wrap docs">
+    <button class="docs-menu-toggle" aria-expanded="false" aria-controls="docs-nav">Docs menu</button>
 
-    <section class="page-section" id="quick-start">
-      <h2>Quick start</h2>
-      <p>Install, configure, run, and send your first request in four steps.</p>
-      <p>For now: <a class="link-underline" href="./#quickstart">quick start on the home page</a> and the <a class="link-underline" href="https://github.com/temikus/butter#quick-start">README</a>.</p>
-    </section>
+    <nav class="docs-nav" id="docs-nav" aria-label="Documentation">
+      <label class="docs-search">
+        <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="5" fill="none" stroke="#5E5850" stroke-width="1.6"/><path d="M11 11l3.5 3.5" stroke="#5E5850" stroke-width="1.6"/></svg>
+        <input type="search" placeholder="Search docs" aria-label="Search docs">
+        <kbd>/</kbd>
+      </label>
 
-    <section class="page-section" id="configuration">
-      <h2>Configuration</h2>
-      <p>YAML config with <code>${ENV_VAR}</code> substitution: providers, model routing, failover, caching, plugins, and app keys. Changes hot-reload without a restart.</p>
-      <p>For now: the annotated <a class="link-underline" href="https://github.com/temikus/butter/blob/main/config.example.yaml">config.example.yaml</a>.</p>
-    </section>
+      <ul class="docs-group">
+        <li class="eyebrow">Getting started</li>
+        <li><a href="./#quickstart">Quick start</a></li>
+        <li><a href="https://github.com/temikus/butter#1-install">Installation</a></li>
+        <li><a href="docs.html" aria-current="page">Configuration</a></li>
+      </ul>
+      <ul class="docs-group">
+        <li class="eyebrow">Guides</li>
+        <li><a href="#routing">Routing &amp; failover</a></li>
+        <li><a href="https://github.com/temikus/butter/blob/main/design/feature-app-key.md">App keys</a></li>
+        <li><a href="https://github.com/temikus/butter#drop-in-replacement">Anthropic &amp; Bedrock</a></li>
+        <li><a href="https://github.com/temikus/butter#features">Observability</a></li>
+        <li><a href="#caching">Caching</a></li>
+        <li><a href="https://github.com/temikus/butter/tree/main/plugins/example-wasm">WASM plugins</a></li>
+      </ul>
+      <ul class="docs-group">
+        <li class="eyebrow">Reference</li>
+        <li><a href="https://github.com/temikus/butter#4-send-a-request">HTTP endpoints</a></li>
+        <li><a href="https://github.com/temikus/butter/blob/main/internal/config/config.go">Config schema</a></li>
+        <li><a href="https://github.com/temikus/butter/tree/main/plugin/sdk">Plugin SDK</a></li>
+        <li><a href="#providers">Providers</a></li>
+      </ul>
+      <p class="docs-empty" hidden>No matching pages.</p>
+    </nav>
 
-    <section class="page-section" id="app-keys">
-      <h2>App keys</h2>
-      <p>Vend <code>btr_</code> keys with expiry and model/provider scopes, rotate or revoke them, and track per-key token usage, streaming included.</p>
-      <p>For now: the <a class="link-underline" href="https://github.com/temikus/butter/blob/main/design/feature-app-key.md">app key design doc</a>.</p>
-    </section>
+    <main class="docs-main">
+      <ol class="crumbs">
+        <li>Docs</li>
+        <li>Getting started</li>
+        <li aria-current="page">Configuration</li>
+      </ol>
 
-    <section class="page-section" id="plugins">
-      <h2>Plugins</h2>
-      <p>Pre/post HTTP and LLM hooks. Write external plugins in any language that compiles to WebAssembly; they run in an Extism/wazero sandbox with per-hook timeout and memory caps.</p>
-      <p>For now: the <a class="link-underline" href="https://github.com/temikus/butter/tree/main/plugins/example-wasm">example plugin</a> and the <a class="link-underline" href="https://github.com/temikus/butter/blob/main/docs/prompt-injection-guard.md">prompt-injection guard docs</a>.</p>
-    </section>
-  </main>
+      <h1>Configuration</h1>
+      <p class="docs-lede">Butter reads one YAML file. Environment variables expand with <code>${VAR}</code>, and the file hot-reloads, so routing and key changes apply without a restart.</p>
+
+      <div class="callout">
+        <strong>NOTE</strong>
+        <p>Unset variables fail startup with an error that names every missing one. A reference on a commented-out line is ignored.</p>
+      </div>
+
+      <section class="doc-section" id="providers">
+        <h2>Providers</h2>
+        <p>Each provider gets a base URL and one or more keys. With several keys, Butter picks one per request at random, weighted by <code>weight</code>.</p>
+        <div class="code-window">
+          <div class="window-bar">
+            <span class="window-title">config.yaml</span>
+            <button class="copy-btn" type="button">Copy</button>
+          </div>
+<pre class="code">providers:
+  openai:
+    base_url: https://api.openai.com/v1
+    keys:
+      - key: "${OPENAI_API_KEY}"
+        weight: 1
+
+  anthropic:
+    base_url: https://api.anthropic.com/v1
+    credential_mode: stored   <span class="c"># or "passthrough"</span>
+    keys:
+      - key: "${ANTHROPIC_API_KEY}"</pre>
+        </div>
+        <table class="fields">
+          <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td>base_url</td><td>string</td><td>Upstream API root. Overrides the provider default.</td></tr>
+            <tr><td>keys[].key</td><td>string</td><td>Provider API key. Use <code>${VAR}</code> to keep secrets out of the file.</td></tr>
+            <tr><td>keys[].weight</td><td>int</td><td>Relative share of traffic when a provider has several keys.</td></tr>
+            <tr><td>keys[].models</td><td>string[]</td><td>Optional allowlist. The key is only used for these models.</td></tr>
+            <tr><td>credential_mode</td><td>enum</td><td><code>stored</code> (default) injects managed keys. <code>passthrough</code> forwards the client's own auth headers.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="doc-section" id="routing">
+        <h2>Routing</h2>
+        <p>Map a model name to an ordered list of providers. With failover on, Butter retries the next provider on the listed status codes, backing off exponentially.</p>
+        <div class="code-window">
+          <div class="window-bar">
+            <span class="window-title">config.yaml</span>
+            <button class="copy-btn" type="button">Copy</button>
+          </div>
+<pre class="code">routing:
+  default_provider: openrouter
+  models:
+    "claude-sonnet-4-20250514":
+      providers: [anthropic, openrouter]
+      strategy: priority      <span class="c"># priority | round-robin | weighted</span>
+  failover:
+    enabled: true
+    max_retries: 3
+    retry_on: [429, 500, 502, 503, 504]</pre>
+        </div>
+      </section>
+
+      <section class="doc-section" id="caching">
+        <h2>Caching</h2>
+        <p>Non-streaming requests with <code>temperature</code> 0 or unset are cached, keyed on provider, model, messages, and parameters. Use the in-memory LRU for a single instance, or Redis to share the cache across replicas.</p>
+        <div class="code-window">
+          <div class="window-bar">
+            <span class="window-title">config.yaml</span>
+            <button class="copy-btn" type="button">Copy</button>
+          </div>
+<pre class="code">cache:
+  enabled: true
+  backend: memory     <span class="c"># memory | redis</span>
+  ttl: 5m
+  max_entries: 10000  <span class="c"># memory only, LRU eviction</span>
+  <span class="c"># redis:</span>
+  <span class="c">#   address: localhost:6379</span>
+  <span class="c">#   key_prefix: "butter:"</span></pre>
+        </div>
+        <table class="fields">
+          <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td>backend</td><td>enum</td><td><code>memory</code> (default) or <code>redis</code>.</td></tr>
+            <tr><td>ttl</td><td>duration</td><td>How long a cached response is served. Defaults to 5m.</td></tr>
+            <tr><td>max_entries</td><td>int</td><td>LRU capacity for the memory backend. Defaults to 10,000.</td></tr>
+            <tr><td>redis.key_prefix</td><td>string</td><td>Namespace for cache keys when Redis is shared with other apps.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="doc-section" id="server-limits">
+        <h2>Server limits</h2>
+        <p>Every inbound body is capped and slow clients are timed out. Streaming responses extend the client-facing write deadline per chunk, so a stalled client is dropped without timing out healthy ones.</p>
+        <div class="code-window">
+          <div class="window-bar">
+            <span class="window-title">config.yaml</span>
+            <button class="copy-btn" type="button">Copy</button>
+          </div>
+<pre class="code">server:
+  address: ":8080"
+  read_timeout: 30s
+  write_timeout: 120s          <span class="c"># per write; streams extend it</span>
+  read_header_timeout: 10s
+  idle_timeout: 120s
+  max_header_bytes: 1048576    <span class="c"># 1 MiB</span>
+  max_request_bytes: 33554432  <span class="c"># 32 MiB; negative disables</span></pre>
+        </div>
+        <table class="fields">
+          <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td>max_request_bytes</td><td>int</td><td>Bodies over the cap get <code>413</code>. Defaults to 32 MiB, matching Anthropic's request limit.</td></tr>
+            <tr><td>write_timeout</td><td>duration</td><td>Deadline for each write. Streaming relays push it forward on every chunk. It also caps the upstream request, so streams longer than this are cut off (<a class="link-underline" href="https://github.com/temikus/butter/issues/132">#132</a>).</td></tr>
+            <tr><td>read_header_timeout</td><td>duration</td><td>How long request headers may take to arrive. Bounds slowloris clients.</td></tr>
+            <tr><td>idle_timeout</td><td>duration</td><td>How long an idle keep-alive connection is held open.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <nav class="pager" aria-label="Pagination">
+        <a href="https://github.com/temikus/butter#1-install">
+          <span>← Previous</span>
+          <strong>Installation</strong>
+        </a>
+        <a href="https://github.com/temikus/butter/blob/main/design/feature-app-key.md" class="next">
+          <span>Next →</span>
+          <strong>App keys</strong>
+        </a>
+      </nav>
+    </main>
+
+    <aside class="toc" aria-label="On this page">
+      <span class="eyebrow">On this page</span>
+      <ul>
+        <li><a href="#providers" class="active">Providers</a></li>
+        <li><a href="#routing">Routing</a></li>
+        <li><a href="#caching">Caching</a></li>
+        <li><a href="#server-limits">Server limits</a></li>
+      </ul>
+      <div class="toc-links">
+        <a href="https://github.com/temikus/butter/edit/main/web/docs.html">Edit this page on GitHub ↗</a>
+        <a href="https://github.com/temikus/butter/blob/main/config.example.yaml">config.example.yaml ↗</a>
+      </div>
+    </aside>
+  </div>
 
   <footer class="footer">
     <div class="wrap footer-inner">
@@ -76,9 +236,9 @@
       <div class="footer-cols">
         <ul>
           <li class="eyebrow">Docs</li>
-          <li><a href="docs.html#quick-start">Quick start</a></li>
-          <li><a href="docs.html#configuration">Configuration</a></li>
-          <li><a href="docs.html#plugins">Plugins</a></li>
+          <li><a href="./#quickstart">Quick start</a></li>
+          <li><a href="docs.html">Configuration</a></li>
+          <li><a href="https://github.com/temikus/butter/tree/main/plugins/example-wasm">Plugins</a></li>
         </ul>
         <ul>
           <li class="eyebrow">Project</li>
@@ -97,6 +257,63 @@
       const open = document.querySelector('.nav-links').classList.toggle('open');
       toggle.setAttribute('aria-expanded', open);
     });
+
+    const menuToggle = document.querySelector('.docs-menu-toggle');
+    const docsNav = document.getElementById('docs-nav');
+    menuToggle.addEventListener('click', () => {
+      const open = docsNav.classList.toggle('open');
+      menuToggle.setAttribute('aria-expanded', open);
+    });
+
+    // Sidebar filter; "/" focuses it.
+    const search = docsNav.querySelector('input');
+    search.addEventListener('input', () => {
+      const q = search.value.trim().toLowerCase();
+      let any = false;
+      docsNav.querySelectorAll('.docs-group').forEach(group => {
+        let groupHit = false;
+        group.querySelectorAll('li:not(.eyebrow)').forEach(li => {
+          const hit = li.textContent.toLowerCase().includes(q);
+          li.hidden = !hit;
+          groupHit ||= hit;
+        });
+        group.hidden = !groupHit;
+        any ||= groupHit;
+      });
+      docsNav.querySelector('.docs-empty').hidden = any;
+    });
+    document.addEventListener('keydown', e => {
+      if (e.key !== '/' || e.target.closest('input, textarea')) return;
+      e.preventDefault();
+      docsNav.classList.add('open');
+      menuToggle.setAttribute('aria-expanded', true);
+      search.focus();
+    });
+
+    document.querySelectorAll('.copy-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const code = btn.closest('.code-window').querySelector('pre').textContent;
+        try {
+          await navigator.clipboard.writeText(code);
+          btn.textContent = 'Copied';
+        } catch {
+          btn.textContent = 'Failed';
+        }
+        setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+      });
+    });
+
+    // Highlight the TOC entry for the section nearest the top of the viewport.
+    const tocLinks = [...document.querySelectorAll('.toc ul a')];
+    const sections = tocLinks.map(a => document.querySelector(a.getAttribute('href')));
+    const spy = () => {
+      const top = window.innerHeight * 0.3;
+      let current = sections[0];
+      for (const s of sections) if (s.getBoundingClientRect().top <= top) current = s;
+      tocLinks.forEach((a, i) => a.classList.toggle('active', sections[i] === current));
+    };
+    document.addEventListener('scroll', spy, { passive: true });
+    spy();
   </script>
 </body>
 </html>
