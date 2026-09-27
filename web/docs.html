@@ -59,7 +59,7 @@
       <ul class="docs-group">
         <li class="eyebrow">Guides</li>
         <li><a href="#routing">Routing &amp; failover</a></li>
-        <li><a href="https://github.com/temikus/butter/blob/main/design/feature-app-key.md">App keys</a></li>
+        <li><a href="https://github.com/temikus/butter/blob/main/config.example.yaml#L179">App keys</a></li>
         <li><a href="https://github.com/temikus/butter#drop-in-replacement">Anthropic &amp; Bedrock</a></li>
         <li><a href="https://github.com/temikus/butter#features">Observability</a></li>
         <li><a href="#caching">Caching</a></li>
@@ -72,7 +72,7 @@
         <li><a href="https://github.com/temikus/butter/tree/main/plugin/sdk">Plugin SDK</a></li>
         <li><a href="#providers">Providers</a></li>
       </ul>
-      <p class="docs-empty" hidden>No matching pages.</p>
+      <p class="docs-empty" role="status"></p>
     </nav>
 
     <main class="docs-main">
@@ -205,7 +205,7 @@
           <span>← Previous</span>
           <strong>Installation</strong>
         </a>
-        <a href="https://github.com/temikus/butter/blob/main/design/feature-app-key.md" class="next">
+        <a href="https://github.com/temikus/butter/blob/main/config.example.yaml#L179" class="next">
           <span>Next →</span>
           <strong>App keys</strong>
         </a>
@@ -280,7 +280,7 @@
         group.hidden = !groupHit;
         any ||= groupHit;
       });
-      docsNav.querySelector('.docs-empty').hidden = any;
+      docsNav.querySelector('.docs-empty').textContent = any ? '' : 'No matching pages.';
     });
     document.addEventListener('keydown', e => {
       if (e.key !== '/' || e.target.closest('input, textarea')) return;

@@ -599,6 +599,8 @@ code, pre { font-family: var(--font-mono); }
 }
 .docs-group a[aria-current="page"]:hover { text-decoration: none; }
 .docs-empty { font-size: 14px; color: var(--muted); }
+/* Live region: must stay in the a11y tree, so no display:none while empty. */
+.docs-empty:empty { position: absolute; }
 
 .docs-main { flex: 0 1 720px; min-width: 0; padding: 40px 0 80px; }
 
