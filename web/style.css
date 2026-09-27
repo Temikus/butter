@@ -631,7 +631,8 @@ code, pre { font-family: var(--font-mono); }
   .section-head { flex-direction: column; align-items: flex-start; gap: 20px; margin-bottom: 40px; }
 
   .provider-list { justify-content: flex-start; }
-  .provider-list li { font-size: 17px; }
+  /* 17px bold is below WCAG "large text"; --on-ink-dim (3.5:1) would fail AA. */
+  .provider-list li { font-size: 17px; color: var(--muted); }
 
   .proof, .architecture { padding: 64px 0; }
   .features, .quickstart { padding-top: 72px; padding-bottom: 72px; }
