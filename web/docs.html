@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Docs — Butter</title>
+  <meta name="description" content="Butter documentation: quick start, configuration, application keys, and WASM plugins.">
+  <meta property="og:title" content="Docs — Butter">
+  <meta property="og:url" content="https://butterproxy.org/docs.html">
+  <meta property="og:image" content="https://butterproxy.org/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="logo.jpg" type="image/jpeg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <nav class="nav">
+    <div class="wrap nav-inner">
+      <a href="./" class="brand">
+        <img src="logo_no_text.png" alt="" width="74" height="32">
+        Butter
+        <span class="version-pill">v0.6.3</span>
+      </a>
+      <button class="nav-toggle" aria-label="Toggle navigation" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+      <ul class="nav-links">
+        <li><a href="docs.html" aria-current="page">Docs</a></li>
+        <li><a href="./#features">Features</a></li>
+        <li><a href="compare.html">Compare</a></li>
+        <li><a href="https://github.com/temikus/butter" class="btn btn-ink" target="_blank" rel="noopener">GitHub</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <main class="wrap page">
+    <span class="eyebrow">Docs</span>
+    <h1 class="h2">Documentation</h1>
+    <span class="soon">Full guides coming soon</span>
+    <p>Until the guides land here, each section below points at the source of truth in the repository.</p>
+
+    <section class="page-section" id="quick-start">
+      <h2>Quick start</h2>
+      <p>Install, configure, run, and send your first request in four steps.</p>
+      <p>For now: <a class="link-underline" href="./#quickstart">quick start on the home page</a> and the <a class="link-underline" href="https://github.com/temikus/butter#quick-start">README</a>.</p>
+    </section>
+
+    <section class="page-section" id="configuration">
+      <h2>Configuration</h2>
+      <p>YAML config with <code>${ENV_VAR}</code> substitution: providers, model routing, failover, caching, plugins, and app keys. Changes hot-reload without a restart.</p>
+      <p>For now: the annotated <a class="link-underline" href="https://github.com/temikus/butter/blob/main/config.example.yaml">config.example.yaml</a>.</p>
+    </section>
+
+    <section class="page-section" id="app-keys">
+      <h2>App keys</h2>
+      <p>Vend <code>btr_</code> keys with expiry and model/provider scopes, rotate or revoke them, and track per-key token usage, streaming included.</p>
+      <p>For now: the <a class="link-underline" href="https://github.com/temikus/butter/blob/main/design/feature-app-key.md">app key design doc</a>.</p>
+    </section>
+
+    <section class="page-section" id="plugins">
+      <h2>Plugins</h2>
+      <p>Pre/post HTTP and LLM hooks. Write external plugins in any language that compiles to WebAssembly; they run in an Extism/wazero sandbox with per-hook timeout and memory caps.</p>
+      <p>For now: the <a class="link-underline" href="https://github.com/temikus/butter/tree/main/plugins/example-wasm">example plugin</a> and the <a class="link-underline" href="https://github.com/temikus/butter/blob/main/docs/prompt-injection-guard.md">prompt-injection guard docs</a>.</p>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap footer-inner">
+      <div class="footer-brand">
+        <a href="./" class="brand"><img src="logo_no_text.png" alt="" width="65" height="28">Butter</a>
+        <p>A fast AI proxy gateway, inspired by <a href="https://github.com/maximhq/bifrost" class="link-underline">Bifrost</a>. Apache-2.0. Signed releases with SLSA provenance and SBOMs.</p>
+      </div>
+      <div class="footer-cols">
+        <ul>
+          <li class="eyebrow">Docs</li>
+          <li><a href="docs.html#quick-start">Quick start</a></li>
+          <li><a href="docs.html#configuration">Configuration</a></li>
+          <li><a href="docs.html#plugins">Plugins</a></li>
+        </ul>
+        <ul>
+          <li class="eyebrow">Project</li>
+          <li><a href="https://github.com/temikus/butter">GitHub</a></li>
+          <li><a href="https://github.com/temikus/butter/releases">Releases</a></li>
+          <li><a href="https://github.com/temikus/butter/blob/main/SECURITY.md">Security policy</a></li>
+          <li><a href="https://github.com/temikus/butter/releases">Changelog</a></li>
+        </ul>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    const toggle = document.querySelector('.nav-toggle');
+    toggle.addEventListener('click', () => {
+      const open = document.querySelector('.nav-links').classList.toggle('open');
+      toggle.setAttribute('aria-expanded', open);
+    });
+  </script>
+</body>
+</html>
