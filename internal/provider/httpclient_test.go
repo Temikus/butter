@@ -124,6 +124,44 @@ func TestNewHTTPClient_BoundsBodyIdle(t *testing.T) {
 	}
 }
 
+// An upstream that stops reading the request body must not hang the upload.
+func TestNewHTTPClient_BoundsStalledUpload(t *testing.T) {
+	const timeout = 100 * time.Millisecond
+
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		<-release // never reads the body
+	}))
+	defer srv.Close()
+	defer close(release)
+
+	client := provider.NewHTTPClient(timeout)
+	defer client.CloseIdleConnections()
+
+	// Large enough to overflow loopback socket buffers.
+	body := io.LimitReader(zeroReader{}, 64<<20)
+	start := time.Now()
+	resp, err := client.Post(srv.URL, "application/octet-stream", body)
+	if err == nil {
+		_ = resp.Body.Close()
+		t.Fatal("expected timeout on stalled upload")
+	}
+	var netErr net.Error
+	if !errors.As(err, &netErr) || !netErr.Timeout() {
+		t.Errorf("got %v; want a timeout error", err)
+	}
+	if elapsed := time.Since(start); elapsed > 10*timeout {
+		t.Errorf("stalled upload took %v; want ~%v", elapsed, timeout)
+	}
+}
+
+type zeroReader struct{}
+
+func (zeroReader) Read(p []byte) (int, error) {
+	clear(p)
+	return len(p), nil
+}
+
 func TestNewHTTPClient_BoundsResponseHeaderWait(t *testing.T) {
 	const timeout = 100 * time.Millisecond
 

@@ -15,19 +15,19 @@ import (
 // connections are closed on return and redialed (TCP+TLS) by the next burst.
 // Total idle is left unbounded since the set of provider hosts is small.
 //
-// timeout bounds the wait for response headers and each gap between body
+// timeout bounds the upload plus header wait, then each gap between body
 // reads, not the total: Client.Timeout would sever streams longer than timeout.
+// (ResponseHeaderTimeout alone would not: it starts only after the upload.)
 func NewHTTPClient(timeout time.Duration) *http.Client {
 	base := &http.Transport{
 		DialContext: (&net.Dialer{
 			Timeout:   30 * time.Second,
 			KeepAlive: 30 * time.Second,
 		}).DialContext,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ResponseHeaderTimeout: timeout,
-		MaxIdleConns:          0,
-		MaxIdleConnsPerHost:   1024,
-		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout: 10 * time.Second,
+		MaxIdleConns:        0,
+		MaxIdleConnsPerHost: 1024,
+		IdleConnTimeout:     90 * time.Second,
 	}
 	if timeout <= 0 {
 		return &http.Client{Transport: base}
@@ -35,17 +35,16 @@ func NewHTTPClient(timeout time.Duration) *http.Client {
 	return &http.Client{Transport: &idleTimeoutTransport{Transport: base, timeout: timeout}}
 }
 
-// errBodyIdle is returned by body reads after the upstream sent nothing for
-// the idle timeout.
-var errBodyIdle error = bodyIdleError{}
+// errUpstreamIdle is returned once the upstream made no progress for timeout.
+var errUpstreamIdle error = upstreamIdleError{}
 
-type bodyIdleError struct{}
+type upstreamIdleError struct{}
 
-func (bodyIdleError) Error() string   { return "upstream response body idle timeout" }
-func (bodyIdleError) Timeout() bool   { return true }
-func (bodyIdleError) Temporary() bool { return true }
+func (upstreamIdleError) Error() string   { return "upstream idle timeout" }
+func (upstreamIdleError) Timeout() bool   { return true }
+func (upstreamIdleError) Temporary() bool { return true }
 
-// idleTimeoutTransport cancels a request whose response body goes silent for
+// idleTimeoutTransport cancels a request whose upstream goes silent for
 // timeout. Embedding keeps CloseIdleConnections reachable from http.Client.
 type idleTimeoutTransport struct {
 	*http.Transport
@@ -54,16 +53,22 @@ type idleTimeoutTransport struct {
 
 func (t *idleTimeoutTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	ctx, cancel := context.WithCancelCause(req.Context())
-	resp, err := t.Transport.RoundTrip(req.WithContext(ctx))
-	if err != nil {
-		cancel(nil)
-		return nil, err
-	}
-	b := &idleTimeoutBody{ReadCloser: resp.Body, timeout: t.timeout, cancel: cancel}
+	b := &idleTimeoutBody{timeout: t.timeout, cancel: cancel}
 	b.timer = time.AfterFunc(t.timeout, func() {
 		b.expired.Store(true)
-		cancel(errBodyIdle)
+		cancel(errUpstreamIdle)
 	})
+	resp, err := t.Transport.RoundTrip(req.WithContext(ctx))
+	if err != nil {
+		b.timer.Stop()
+		cancel(nil)
+		if b.expired.Load() {
+			return nil, errUpstreamIdle
+		}
+		return nil, err
+	}
+	b.timer.Reset(t.timeout)
+	b.ReadCloser = resp.Body
 	resp.Body = b
 	return resp, nil
 }
@@ -82,7 +87,7 @@ func (b *idleTimeoutBody) Read(p []byte) (int, error) {
 		b.timer.Reset(b.timeout)
 	}
 	if err != nil && b.expired.Load() {
-		err = errBodyIdle
+		err = errUpstreamIdle
 	}
 	return n, err
 }
