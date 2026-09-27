@@ -198,6 +198,10 @@ func BenchmarkBaselineStdlibProxy(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
+		if resp.StatusCode != http.StatusOK {
+			_ = resp.Body.Close()
+			b.Fatalf("unexpected status %d", resp.StatusCode)
+		}
 		_, _ = io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
 	}
@@ -246,6 +250,11 @@ func BenchmarkParallelNonStreaming(b *testing.B) {
 			resp, err := client.Post(ts.URL+"/v1/chat/completions", "application/json", strings.NewReader(reqBody))
 			if err != nil {
 				b.Error(err)
+				return
+			}
+			if resp.StatusCode != http.StatusOK {
+				_ = resp.Body.Close()
+				b.Errorf("unexpected status %d", resp.StatusCode)
 				return
 			}
 			_, _ = io.ReadAll(resp.Body)
