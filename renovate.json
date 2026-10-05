@@ -6,9 +6,10 @@
   "customManagers": [
     {
       "customType": "regex",
-      "description": "Track the betterleaks version pinned in the Security workflow",
+      "description": "Track versions pinned with a # renovate: comment in workflows and the justfile",
       "managerFilePatterns": [
-        "/^\\.github/workflows/security\\.yml$/"
+        "/^\\.github/workflows/.+\\.ya?ml$/",
+        "/^justfile$/"
       ],
       "matchStrings": [
         "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+VERSION=\"(?<currentValue>[^\"]+)\""

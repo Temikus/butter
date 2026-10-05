@@ -12,11 +12,11 @@ on:
 
 jobs:
   claude-review:
-    # Optional: Filter by PR author
-    # if: |
-    #   github.event.pull_request.user.login == 'external-contributor' ||
-    #   github.event.pull_request.user.login == 'new-developer' ||
-    #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
+    # Fork PRs get no secrets and no id-token from a `pull_request` event, so the
+    # action cannot authenticate and the job fails unconditionally. Skip them here;
+    # a maintainer can still trigger a review by commenting `@claude` (claude.yml
+    # runs on issue_comment in base-repo context, where both are available).
+    if: github.event.pull_request.head.repo.fork == false
 
     runs-on: ubuntu-latest
     permissions:
@@ -33,7 +33,7 @@ jobs:
 
       - name: Run Claude Code Review
         id: claude-review
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@cab360f6565aa35a51d6ce9e43f1f4287c0a32ea # v1.0.241
         with:
           allowed_bots: "dependabot[bot],renovate[bot]"
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
