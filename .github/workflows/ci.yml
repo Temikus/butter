@@ -64,5 +64,5 @@ jobs:
       - name: govulncheck
         run: |
           # renovate: datasource=go depName=golang.org/x/vuln
-          VERSION="v1.7.0"
+          VERSION="v1.8.0"
           go run "golang.org/x/vuln/cmd/govulncheck@${VERSION}" $(go list ./... | grep -v '/plugins/')
