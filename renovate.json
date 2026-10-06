@@ -1,19 +1,4 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": [
-    "config:recommended"
-  ],
-  "customManagers": [
-    {
-      "customType": "regex",
-      "description": "Track versions pinned with a # renovate: comment in workflows and the justfile",
-      "managerFilePatterns": [
-        "/^\\.github/workflows/.+\\.ya?ml$/",
-        "/^justfile$/"
-      ],
-      "matchStrings": [
-        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+VERSION=\"(?<currentValue>[^\"]+)\""
-      ]
-    }
-  ]
+  "extends": ["github>Temikus/.github"]
 }
