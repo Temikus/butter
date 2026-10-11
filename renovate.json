@@ -10,7 +10,7 @@
       "depNameTemplate": "go",
       "datasourceTemplate": "github-releases",
       "packageNameTemplate": "actions/go-versions",
-      "versioningTemplate": "npm",
+      "versioningTemplate": "semver-partial",
       "extractVersionTemplate": "^(?<version>\\d+\\.\\d+\\.\\d+)(-\\d+)?$"
     }
   ]
