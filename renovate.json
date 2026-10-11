@@ -1,4 +1,17 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["github>Temikus/.github"]
+  "extends": ["github>Temikus/.github"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Go in the CI test matrix, which the github-actions manager skips. Mirrors its setup-go lookup so both land in one PR",
+      "managerFilePatterns": ["/^\\.github/workflows/ci\\.yml$/"],
+      "matchStrings": ["- go-version: \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "go",
+      "datasourceTemplate": "github-releases",
+      "packageNameTemplate": "actions/go-versions",
+      "versioningTemplate": "semver-partial",
+      "extractVersionTemplate": "^(?<version>\\d+\\.\\d+\\.\\d+)(-\\d+)?$"
+    }
+  ]
 }
