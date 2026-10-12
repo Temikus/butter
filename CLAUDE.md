@@ -56,7 +56,7 @@ Client → transport.Server (HTTP) → proxy.Engine (routing/dispatch) → provi
 - stdlib-only HTTP (no frameworks) — performance target is <50μs proxy overhead
 - Direct dependency: `gopkg.in/yaml.v3`; metrics/tracing plugins add OTel SDK + Prometheus; WASM host adds Extism/wazero; Redis cache adds `go-redis/v9`; bbolt persistence adds `go.etcd.io/bbolt`; Bedrock provider adds `aws-sdk-go-v2` (SigV4 auth + bedrockruntime)
 - Streaming uses direct byte relay (no JSON re-serialization)
-- Go 1.25+ required for pattern-based ServeMux routing
+- Go 1.26+ required (the go.mod floor)
 - No HashiCorp licensed dependencies; all deps are Apache-2.0, MIT, BSD, or MPL-2.0
 
 ## Phased Roadmap

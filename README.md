@@ -60,7 +60,7 @@ Your App ──▶ Butter ──▶ OpenAI / Anthropic / Bedrock / Gemini / Groq
 
 ### Prerequisites
 
-- Go 1.25+ (uses enhanced `ServeMux` pattern routing)
+- Go 1.26+
 - An API key for a supported provider ([OpenAI](https://platform.openai.com/), [Anthropic](https://console.anthropic.com/), [AWS Bedrock](https://aws.amazon.com/bedrock/), [Azure OpenAI](https://azure.microsoft.com/en-us/products/ai-services/openai-service), [Google Gemini](https://ai.google.dev/), [OpenRouter](https://openrouter.ai/), [Groq](https://console.groq.com/), [Mistral](https://console.mistral.ai/), [Together.ai](https://api.together.xyz/), [Fireworks](https://fireworks.ai/), [Perplexity](https://www.perplexity.ai/), or any OpenAI-compatible API)
 
 ### 1. Install
