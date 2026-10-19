@@ -9,7 +9,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.63.4
 	github.com/extism/go-pdk v1.1.3
 	github.com/extism/go-sdk v1.7.1
-	github.com/prometheus/client_golang v1.24.1
+	github.com/prometheus/client_golang v1.25.0
 	github.com/redis/go-redis/v9 v9.23.0
 	github.com/tetratelabs/wazero v1.12.0
 	go.etcd.io/bbolt v1.5.0
